@@ -2,6 +2,7 @@ import express from 'express';
 import {randomUUID,randomBytes} from 'node:crypto';
 import {fail,digest,token,lookup,day,text,profile,hashPassword,verifyPassword,limiter,publicUser,publicCompany} from './security.js';
 import {companion} from './ai.js';
+import {installWhatsAppAI} from './whatsapp-ai.js';
 import {installAttendance,installPublicAttendance,resolveAccess,ensureEmployeeCode} from './attendance.js';
 import {validMethod} from './workforce-policy.js';
 import {createBadgeService,normalizeIdentityImage} from './badges.js';
@@ -10,7 +11,7 @@ const wrap=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
 const validCode=v=>String(v||'').replace(/[^a-z0-9]/gi,'').toUpperCase();
 const reportSafe=r=>({id:r.id,category:r.category,title:r.title,body:r.body,status:r.status,day:r.day,reply:r.reply||'',anonymous:true});
 const feedbackSafe=f=>({id:f.id,rating:f.rating,body:f.body,day:f.day,anonymous:f.anonymous,author:f.author||null});
-export function createApp({store,secret,gateway=null,ai=companion,staticPath,publicAppUrl}){
+export function createApp({store,secret,gateway=null,ai=companion,whatsappAI,staticPath,publicAppUrl}){
  const app=express();app.disable('x-powered-by');app.set('trust proxy',1);
  app.use((req,res,next)=>{res.set({'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','Permissions-Policy':'camera=(self), microphone=(), geolocation=(self)','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"});if(req.path.startsWith('/api')){
   res.set('Cache-Control','no-store');
@@ -30,7 +31,7 @@ export function createApp({store,secret,gateway=null,ai=companion,staticPath,pub
  const settingsFor=cid=>store.get('settings',lookup(secret,'settings',cid),cid);
  const companyFor=async id=>{const c=await store.get('company',id,id);if(!c)throw fail(404,'Empresa não encontrada.');return c;};
  const issue=async(user,remember)=>{const raw=token(),id=lookup(secret,'session',digest(raw));await store.put('session',user.companyId,{userId:user.id,companyId:user.companyId,expiresAt:new Date(Date.now()+(remember?30*86400000:8*3600000)).toISOString()},id,true);return {token:raw,user:publicUser(user)};};
- route('get','/health',async(req,res)=>{const healthy=await store.health();res.status(healthy?200:503).json({service:'Oluni',version:'2.3.0',database:healthy});});
+ route('get','/health',async(req,res)=>{const healthy=await store.health();res.status(healthy?200:503).json({service:'Oluni',version:'2.4.0',database:healthy});});
  const badges=createBadgeService({route,store,secret,companyFor,forUser:u=>ensureEmployeeCode(store,secret,u),publicAppUrl,serial:attendanceSerial});
  let attendance;
  const verification=installPublicAttendance({route,store,secret,gateway,limiter,companyFor,getAttendance:()=>attendance});
@@ -46,6 +47,7 @@ export function createApp({store,secret,gateway=null,ai=companion,staticPath,pub
  route('post','/reports/lookup',limiter(20,900000),async(req,res)=>{const capability=String(req.body.protocol||'').trim();if(!/^[\w-]{43}$/.test(capability))throw fail(404,'Protocolo não encontrado.');const r=await store.get('report',lookup(secret,'report',digest(capability)));if(!r)throw fail(404,'Protocolo não encontrado.');res.json(reportSafe(r));});
  app.use('/api',wrap(auth));
  badges.installAuthenticated(admin);
+ const waAI=installWhatsAppAI({route,store,secret,admin,settingsFor,companyFor,ai:whatsappAI});
  route('post','/profile/whatsapp/request',async(req,res)=>{if(!gateway?.sendText||(await gateway.status(req.user.companyId)).status!=='connected')throw fail(409,'O RH precisa conectar o WhatsApp da empresa primeiro.');await verification.sendOTP('verify',req.user);res.json({ok:true});});
  route('post','/profile/whatsapp/verify',async(req,res)=>{await verification.consume('verify',req.user.email,req.body.code,async u=>{if((await store.list('user',u.companyId)).some(other=>other.id!==u.id&&other.whatsappJid===u.phone+'@s.whatsapp.net'))throw fail(409,'Este WhatsApp já está vinculado a outra conta. Procure o RH.');u.phoneVerified=true;u.whatsappConsent=true;u.whatsappJid=u.phone+'@s.whatsapp.net';await store.put('user',u.companyId,u,u.id);});res.json({ok:true});});
  route('post','/auth/logout',async(req,res)=>{await store.remove('session',req.sessionId,req.user.companyId);res.json({ok:true});});
@@ -93,8 +95,8 @@ export function createApp({store,secret,gateway=null,ai=companion,staticPath,pub
    return 'Seu WhatsApp foi vinculado ao Oluni. Envie MENU para começar. Para registrar humor, envie HUMOR e um número de 1 a 5. Envie PARAR para encerrar.';
   }
   if(!u)return null;
-  if(/^(PARAR|SAIR|STOP)$/i.test(message.trim())){u.whatsappConsent=false;await store.put('user',cid,u,u.id);return 'Atendimento por WhatsApp desativado. Você pode reativar pelo perfil no Oluni.';}
-  const c=await companyFor(cid),settings=(await attendance.mine(u)).settings;
+  if(/^(PARAR|SAIR|STOP)$/i.test(message.trim())){u.whatsappConsent=false;await store.put('user',cid,u,u.id);await waAI.clear(cid,u.id);await store.remove('bot-state',lookup(secret,'bot-state',cid,u.id),cid);return 'Atendimento por WhatsApp desativado. Você pode reativar pelo perfil no Oluni.';}
+  const c=await companyFor(cid),attendanceState=await attendance.mine(u),settings=attendanceState.settings;
   if(attachment){
    try{await attendance.saveDocument(u,attachment,'whatsapp');return 'Recebemos seu documento e colocamos na sua pasta. O RH fará a análise. Você pode acompanhar pelo aplicativo.';}
    catch(e){return e.status?e.message:'Não foi possível salvar o documento agora. Tente pelo aplicativo.';}
@@ -102,7 +104,7 @@ export function createApp({store,secret,gateway=null,ai=companion,staticPath,pub
   const command=message.trim().toUpperCase();
   if(['1','PONTO','MEU PONTO'].includes(command)){
    const state=await attendance.mine(u);
-   const labels={entry:'Entrada',break_start:'Início do intervalo',break_end:'Fim do intervalo',exit:'Saída'};
+   const labels={presence:'Presença',entry:'Entrada',break_start:'Início do intervalo',break_end:'Fim do intervalo',exit:'Saída'};
    return 'Seu ponto de '+state.shiftDay+':\n'+(state.entries.map(e=>labels[e.event]+' — '+new Date(e.at).toLocaleTimeString('pt-BR',{timeZone:settings.timezone})).join('\n')||'Nenhum registro hoje.')+'\nPara bater o ponto, abra o aplicativo ou use o totem da empresa.';
   }
   if(['2','ATESTADO','ENVIAR ATESTADO'].includes(command))return 'Envie seu atestado como PDF, JPG ou PNG, com até 5 MB. Ele será salvo na sua pasta para o RH analisar. Não é necessário informar sua senha.';
@@ -110,12 +112,19 @@ export function createApp({store,secret,gateway=null,ai=companion,staticPath,pub
   const mood=/^HUMOR\s+([1-5])$/i.exec(message.trim());
   if(mood){await store.put('checkin',cid,{owner:u.id,day:day(),mood:Number(mood[1]),note:'',shared:u.shareMood===true,source:'whatsapp',at:new Date().toISOString()},lookup(secret,'checkin',u.id,day()));return 'Seu humor foi registrado conforme suas preferências de compartilhamento.';}
   const stateId=lookup(secret,'bot-state',cid,u.id);
-  if(['MENU','INICIO','INÍCIO','OI','OLA','OLÁ'].includes(command)){await store.remove('bot-state',stateId,cid);return settings.greeting+'\n\n'+settings.menu;}
-  if(command==='4'){await store.put('bot-state',cid,{owner:u.id,aiUntil:new Date(Date.now()+15*60000).toISOString()},stateId);return 'Envie sua mensagem para a assistente. A IA precisa estar ativada pelo RH e autorizada no seu perfil. Envie MENU para voltar.';}
-  const state=await store.get('bot-state',stateId,cid);
-  if(state?.aiUntil&&Date.parse(state.aiUntil)>Date.now()){
+  if(['MENU','INICIO','INÍCIO','OI','OLA','OLÁ'].includes(command)){await store.remove('bot-state',stateId,cid);await waAI.clear(cid,u.id);return settings.greeting+'\n\n'+settings.menu;}
+  const aiSettings=await waAI.configFor(cid);
+  if(command==='4'){
+   if(!u.aiConsent)return 'Autorize o uso da IA em Meu perfil no Oluni. O menu e os documentos continuam disponíveis. Envie MENU para voltar.';
+   if(!aiSettings.enabled||!aiSettings.apiKey)return 'O RH precisa configurar a chave de API e ativar a IA do WhatsApp. Envie MENU para usar os serviços automáticos.';
+   await waAI.clear(cid,u.id);await store.put('bot-state',cid,{owner:u.id,aiUntil:new Date(Date.now()+15*60000).toISOString()},stateId);
+   return `Você está com ${aiSettings.botName||'a assistente do RH'}, uma IA. Como posso ajudar com os serviços da empresa? Envie MENU para voltar.`;
+  }
+  const state=await store.get('bot-state',stateId,cid),inSession=state?.aiUntil&&Date.parse(state.aiUntil)>Date.now();
+  if(inSession||(aiSettings.enabled&&aiSettings.apiKey&&aiSettings.mode==='automatic')){
    if(!u.aiConsent)return 'Autorize a IA no seu perfil para conversar. Envie MENU para voltar aos serviços.';
-   try{return (await reply(u,message,'whatsapp')).text;}catch{return 'A assistente está indisponível. Envie MENU para continuar com os serviços automáticos.';}
+   try{return await waAI.reply(u,message,{companyName:c.name,employeeName:u.name,employeeCode:u.employeeCode,shiftDay:attendanceState.shiftDay,timezone:settings.timezone,entries:attendanceState.entries.map(e=>({event:e.event,at:e.at})),menu:settings.menu});}
+   catch{return 'A assistente está indisponível. Envie MENU para continuar com os serviços automáticos.';}
   }
   return settings.greeting+'\n\n'+settings.menu;
  };

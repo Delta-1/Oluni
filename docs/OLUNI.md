@@ -157,3 +157,28 @@ O QR abre uma consulta por um identificador criptográfico que não serve para a
 Desativar a conta faz a consulta indicar cadastro desativado. **Renovar QR do crachá**, na visualização do RH, invalida o link anterior e exige reimpressão. Fotos/logos são decodificados e regravados no servidor sem metadados EXIF, em registros criptografados separados das evidências de ponto e serviço. A foto escolhida pelo usuário não constitui reconhecimento biométrico nem aprovação de identidade pelo RH.
 
 A seleção para impressão de crachás e etiquetas usa uma tabela compacta, com busca, setor, código, seleção e quantidade na mesma linha. A lista tem rolagem própria e o resumo informa os selecionados e o total de cópias.
+
+
+## Versão 2.4 — modelos de crachá e bot do WhatsApp
+
+### Personalizar o cartão
+
+Em **Mais → Jornada e atendimento → Logo e crachá → Personalizar crachá**:
+
+- Escolha Minimalista, Triângulos, Bolinhas, Diagonal ou Pontinhos e a cor dos detalhes.
+- Para um fundo próprio, escolha uma imagem JPG/PNG/WebP; ela é validada, redimensionada e armazenada criptografada, sem metadados.
+- O enquadramento permite preencher o cartão ou mostrar a imagem inteira; a visibilidade ajusta a intensidade do fundo.
+- Confira a prévia e clique **Salvar modelo de crachá**. A escolha vale para os crachás da empresa, na consulta, na impressão individual e no lote.
+- Trocar um enfeite não apaga a imagem já salva; remover a imagem exclui apenas o fundo, preservando foto e logo. Texto e QR têm áreas claras de proteção no modelo com imagem.
+
+O tamanho de impressão e a lista compacta de seleção permanecem iguais. SVGs de enfeites e imagens de fundo são conteúdo do cartão e não dependem de fontes ou imagens externas.
+
+### Configurar IA no atendimento
+
+Em **WhatsApp → Bot de IA do WhatsApp**, o RH escolhe o provedor (Google Gemini/OpenAI), modelo disponível na sua conta, chave API, nome do bot, orientações e quando responder: opção 4 do menu ou perguntas livres. A chave fica criptografada no servidor, e as respostas de configuração mostram somente se há uma chave salva. É necessário salvar e ativar o bot; a chave não é fornecida pelo aplicativo.
+
+Saudação, menu, consulta de ponto e recebimento de documentos continuam sem IA. Somente colaboradores vinculados e autorizados recebem respostas; o uso de IA também exige consentimento no perfil. MENU limpa a conversa de atendimento e volta aos serviços; PARAR desativa respostas. A memória do atendimento é limitada às últimas 16 mensagens e expira após 15 minutos sem interação.
+
+O bot de serviços usa contexto do próprio colaborador e um histórico separado da Flora, sem incluir conversas privadas de bem-estar. Ele orienta os serviços do RH; a gravação de ponto, o recebimento de documentos e a análise/aprovação humana continuam nos fluxos do sistema. Não há decisões automáticas sobre atestados ou vínculos de trabalho.
+
+A chave anterior, se já configurada na Assistente de IA, é preservada como compatibilidade até salvar a configuração independente do WhatsApp. Não é necessário alterar os serviços de mensageria de outros projetos.
