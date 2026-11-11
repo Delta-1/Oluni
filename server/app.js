@@ -2,6 +2,7 @@ import express from 'express';
 import {randomUUID,randomBytes} from 'node:crypto';
 import {fail,digest,token,lookup,day,text,profile,hashPassword,verifyPassword,limiter,publicUser,publicCompany} from './security.js';
 import {companion} from './ai.js';
+import {installAttendance,installPublicAttendance,resolveAccess,ensureEmployeeCode} from './attendance.js';
 const wrap=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
 const validCode=v=>String(v||'').replace(/[^a-z0-9]/gi,'').toUpperCase();
 const reportSafe=r=>({id:r.id,category:r.category,title:r.title,body:r.body,status:r.status,day:r.day,reply:r.reply||'',anonymous:true});
@@ -11,7 +12,7 @@ export function createApp({store,secret,gateway=null,ai=companion,staticPath}){
  app.use((req,res,next)=>{res.set({'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','Permissions-Policy':'camera=(), microphone=(), geolocation=()','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"});if(req.path.startsWith('/api')){
   res.set('Cache-Control','no-store');
   const origin=req.get('origin'),host=req.get('x-forwarded-host')||req.get('host');
-  const allowed=new Set(['https://delta-1.github.io',...(process.env.ALLOWED_ORIGINS||'').split(',').map(v=>v.trim()).filter(Boolean)]);
+  const allowed=new Set(['https://delta-1.github.io','https://localhost','capacitor://localhost',...(process.env.ALLOWED_ORIGINS||'').split(',').map(v=>v.trim()).filter(Boolean)]);
   if(origin){
    const sameOrigin=origin===`https://${host}`||(process.env.NODE_ENV!=='production'&&origin===`http://${host}`);
    if(!sameOrigin&&!allowed.has(origin))return res.status(403).json({error:'Origem não autorizada.'});
@@ -19,24 +20,28 @@ export function createApp({store,secret,gateway=null,ai=companion,staticPath}){
   }
   if(req.method==='OPTIONS')return res.sendStatus(204);
  }next();});
- app.use(express.json({limit:'40kb'}));app.use('/api',limiter(240));
+ app.use(express.json({limit:'8mb'}));app.use('/api',limiter(240));
  const route=(method,path,...handlers)=>app[method]('/api'+path,...handlers.map(h=>h.constructor.name==='AsyncFunction'?wrap(h):h));
  const auth=async(req,res,next)=>{const raw=String(req.get('authorization')||'').replace(/^Bearer /,'');if(!/^[\w-]{43}$/.test(raw))throw fail(401,'Entre na sua conta.');const session=await store.get('session',lookup(secret,'session',digest(raw)));if(!session||Date.parse(session.expiresAt)<Date.now())throw fail(401,'Sua sessão expirou. Entre novamente.');const user=await store.get('user',session.userId,session.companyId);if(!user||!user.active)throw fail(401,'Esta conta não está ativa.');req.user=user;req.sessionId=session.id;next();};
  const admin=(req,res,next)=>{if(req.user.role!=='admin')return res.status(403).json({error:'Acesso restrito ao RH administrador.'});next();};
  const settingsFor=cid=>store.get('settings',lookup(secret,'settings',cid),cid);
  const companyFor=async id=>{const c=await store.get('company',id,id);if(!c)throw fail(404,'Empresa não encontrada.');return c;};
  const issue=async(user,remember)=>{const raw=token(),id=lookup(secret,'session',digest(raw));await store.put('session',user.companyId,{userId:user.id,companyId:user.companyId,expiresAt:new Date(Date.now()+(remember?30*86400000:8*3600000)).toISOString()},id,true);return {token:raw,user:publicUser(user)};};
- route('get','/health',async(req,res)=>res.status(await store.health()?200:503).json({service:'MoodCorp',version:'1.0.0',database:await store.health()}));
+ route('get','/health',async(req,res)=>{const healthy=await store.health();res.status(healthy?200:503).json({service:'Ponto Norte',version:'2.0.0',database:healthy});});
+ let attendance;
+ const verification=installPublicAttendance({route,store,secret,gateway,limiter,companyFor,getAttendance:()=>attendance});
  const authLimit=limiter(20,900000);
  route('post','/auth/register',authLimit,async(req,res)=>{const p=profile(req.body),passwordHash=await hashPassword(req.body.password),id=lookup(secret,'email',p.email);if(await store.get('user',id))throw fail(409,'Não foi possível cadastrar. Se já tem uma conta, faça login.');const isAdmin=req.body.mode==='company';let c,codeId;
  if(isAdmin){const companyId='moodcorp:'+randomUUID(),code=randomBytes(5).toString('hex').toUpperCase();c={id:companyId,name:text(req.body.companyName,2,120),sector:text(req.body.sector||'Serviços',2,100),code,createdAt:new Date().toISOString()};codeId=lookup(secret,'code',code);await store.put('company',companyId,c,companyId,true);try{await store.put('code',companyId,{companyId},codeId,true);}catch(e){await store.remove('company',companyId,companyId);throw e;}}
- else {const code=validCode(req.body.companyCode);if(!/^[A-F0-9]{10}$/.test(code))throw fail(400,'Confira o código da empresa.');const entry=await store.get('code',lookup(secret,'code',code));if(!entry)throw fail(400,'Código da empresa não encontrado.');c=await companyFor(entry.companyId);if(c.code!==code)throw fail(400,'Este código foi desativado. Peça o novo código ao RH.');}
+ else {c=await resolveAccess(store,secret,req.body.invite,'invite');}
  const user={...p,id,companyId:c.id,role:isAdmin?'admin':'employee',active:true,passwordHash,shareMood:false,aiConsent:false,whatsappConsent:false,createdAt:new Date().toISOString()};
  try{await store.put('user',c.id,user,id,true);}catch(e){if(isAdmin){await store.remove('code',codeId,c.id);await store.remove('company',c.id,c.id);}throw e;}
- res.status(201).json(await issue(user,req.body.remember===true));});
+ res.status(201).json(await issue(await ensureEmployeeCode(store,secret,user),req.body.remember===true));});
  route('post','/auth/login',authLimit,async(req,res)=>{const email=String(req.body.email||'').trim().toLowerCase(),u=await store.get('user',lookup(secret,'email',email));if(!await verifyPassword(req.body.password,u?.passwordHash)||!u?.active)throw fail(401,'E-mail ou senha incorretos.');res.json(await issue(u,req.body.remember===true));});
  route('post','/reports/lookup',limiter(20,900000),async(req,res)=>{const capability=String(req.body.protocol||'').trim();if(!/^[\w-]{43}$/.test(capability))throw fail(404,'Protocolo não encontrado.');const r=await store.get('report',lookup(secret,'report',digest(capability)));if(!r)throw fail(404,'Protocolo não encontrado.');res.json(reportSafe(r));});
  app.use('/api',wrap(auth));
+ route('post','/profile/whatsapp/request',async(req,res)=>{if(!gateway?.sendText||(await gateway.status(req.user.companyId)).status!=='connected')throw fail(409,'O RH precisa conectar o WhatsApp da empresa primeiro.');await verification.sendOTP('verify',req.user);res.json({ok:true});});
+ route('post','/profile/whatsapp/verify',async(req,res)=>{await verification.consume('verify',req.user.email,req.body.code,async u=>{if((await store.list('user',u.companyId)).some(other=>other.id!==u.id&&other.whatsappJid===u.phone+'@s.whatsapp.net'))throw fail(409,'Este WhatsApp já está vinculado a outra conta. Procure o RH.');u.phoneVerified=true;u.whatsappConsent=true;u.whatsappJid=u.phone+'@s.whatsapp.net';await store.put('user',u.companyId,u,u.id);});res.json({ok:true});});
  route('post','/auth/logout',async(req,res)=>{await store.remove('session',req.sessionId,req.user.companyId);res.json({ok:true});});
  route('get','/bootstrap',async(req,res)=>{const u=req.user,c=await companyFor(u.companyId);const own=await store.list('checkin',c.id,{owner:u.id,limit:400});const settings=await settingsFor(c.id);res.json({user:publicUser(u),company:publicCompany(c),checkins:own.sort((a,b)=>b.day.localeCompare(a.day)),aiAvailable:!!(settings?.enabled&&settings?.apiKey)});});
  route('patch','/profile',async(req,res)=>{const u={...req.user};for(const k of ['shareMood','aiConsent','whatsappConsent'])if(req.body[k]!==undefined)u[k]=req.body[k]===true;if(req.body.name)u.name=text(req.body.name,3,120);if(req.body.jobTitle)u.jobTitle=text(req.body.jobTitle,2,100);if(req.body.department)u.department=text(req.body.department,2,100);await store.put('user',u.companyId,u,u.id);res.json(publicUser(u));});
@@ -64,10 +69,51 @@ export function createApp({store,secret,gateway=null,ai=companion,staticPath}){
  route('post','/admin/whatsapp/connect',admin,async(req,res)=>{if(!gateway)throw fail(503,'Integração indisponível.');await gateway.connect(req.user.companyId);res.json({ok:true});});
  route('post','/admin/whatsapp/disconnect',admin,async(req,res)=>{if(!gateway)throw fail(503,'Integração indisponível.');await gateway.disconnect(req.user.companyId);res.json({ok:true});});
  route('post','/admin/whatsapp/reset-start',admin,async(req,res)=>{await gateway.resetStart(req.user.companyId);res.json({ok:true});});
- if(gateway)gateway.onMessage=async(cid,jid,message)=>{const u=(await store.list('user',cid)).find(u=>u.active&&u.whatsappJid===jid&&u.whatsappConsent);const link=/^VINCULAR\s+([A-F0-9]{12})$/i.exec(message.trim());if(link){const id=lookup(secret,'wa-link',cid,link[1].toUpperCase()),entry=await store.get('wa-link',id,cid);if(!entry||Date.parse(entry.expiresAt)<Date.now())return null;const target=await store.get('user',entry.userId,cid);if(!target?.active||!target.whatsappConsent)return null;if((await store.list('user',cid)).some(other=>other.id!==target.id&&other.whatsappJid===jid))return 'Este WhatsApp já está vinculado a outra conta. Procure o RH.';target.whatsappJid=jid;await store.put('user',cid,target,target.id);await store.remove('wa-link',id,cid);return 'Seu WhatsApp foi vinculado ao MoodCorp. Como você está hoje, de 1 (muito mal) a 5 (muito bem)? Envie PARAR para encerrar. Conversas aqui não são denúncias anônimas; use o canal no aplicativo.';}
- if(!u)return null;if(/^(PARAR|SAIR|STOP)$/i.test(message.trim())){u.whatsappConsent=false;await store.put('user',cid,u,u.id);return 'Atendimento por WhatsApp desativado. Você pode reativar pelo perfil no MoodCorp.';}
- if(/^[1-5]$/.test(message.trim())){await store.put('checkin',cid,{owner:u.id,day:day(),mood:Number(message.trim()),note:'',shared:u.shareMood===true,source:'whatsapp',at:new Date().toISOString()},lookup(secret,'checkin',u.id,day()));return 'Check-in registrado. '+(u.shareMood?'Seu humor foi compartilhado com o RH conforme sua preferência.':'Seu humor ficou privado.')+' Quer contar um pouco sobre como foi seu dia?';}
- if(!u.aiConsent)return 'Para conversar com a assistente, autorize o uso da IA em Meu perfil no MoodCorp. Você pode registrar seu humor enviando um número de 1 a 5.';try{return (await reply(u,message,'whatsapp')).text;}catch(e){return e.status===409?'A assistente ainda não foi ativada pelo RH. Você pode registrar seu humor enviando um número de 1 a 5.':'Não consegui responder agora. Tente novamente mais tarde ou use o aplicativo.';}};
+ attendance=installAttendance({route,store,secret,admin,companyFor,gateway,reply});
+ if(gateway)gateway.canReceiveFile=async(cid,jid)=>(await store.list('user',cid)).some(u=>u.active&&u.whatsappConsent&&u.whatsappJid===jid);
+ if(gateway)gateway.onMessage=async(cid,jid,message,attachment=null)=>{
+  const users=await store.list('user',cid);
+  let u=users.find(u=>u.active&&u.whatsappJid===jid&&u.whatsappConsent);
+  const link=/^VINCULAR\s+([A-F0-9]{12})$/i.exec(message.trim());
+  if(link){
+   const id=lookup(secret,'wa-link',cid,link[1].toUpperCase()),entry=await store.get('wa-link',id,cid);
+   if(!entry||Date.parse(entry.expiresAt)<Date.now())return null;
+   const target=await store.get('user',entry.userId,cid);
+   if(!target?.active||!target.whatsappConsent)return null;
+   if(users.some(other=>other.id!==target.id&&other.whatsappJid===jid))return 'Este WhatsApp já está vinculado a outra conta. Procure o RH.';
+   target.whatsappJid=jid;
+   if(jid===target.phone+'@s.whatsapp.net')target.phoneVerified=true;
+   await store.put('user',cid,target,target.id);await store.remove('wa-link',id,cid);
+   return 'Seu WhatsApp foi vinculado ao Ponto Norte. Envie MENU para começar. Para registrar humor, envie HUMOR e um número de 1 a 5. Envie PARAR para encerrar.';
+  }
+  if(!u)return null;
+  if(/^(PARAR|SAIR|STOP)$/i.test(message.trim())){u.whatsappConsent=false;await store.put('user',cid,u,u.id);return 'Atendimento por WhatsApp desativado. Você pode reativar pelo perfil no Ponto Norte.';}
+  const c=await companyFor(cid),settings=(await attendance.mine(u)).settings;
+  if(attachment){
+   try{await attendance.saveDocument(u,attachment,'whatsapp');return 'Recebemos seu documento e colocamos na sua pasta. O RH fará a análise. Você pode acompanhar pelo aplicativo.';}
+   catch(e){return e.status?e.message:'Não foi possível salvar o documento agora. Tente pelo aplicativo.';}
+  }
+  const command=message.trim().toUpperCase();
+  if(['1','PONTO','MEU PONTO'].includes(command)){
+   const state=await attendance.mine(u);
+   const labels={entry:'Entrada',break_start:'Início do intervalo',break_end:'Fim do intervalo',exit:'Saída'};
+   return 'Seu ponto de '+state.shiftDay+':\n'+(state.entries.map(e=>labels[e.event]+' — '+new Date(e.at).toLocaleTimeString('pt-BR',{timeZone:settings.timezone})).join('\n')||'Nenhum registro hoje.')+'\nPara bater o ponto, abra o aplicativo ou use o totem da empresa.';
+  }
+  if(['2','ATESTADO','ENVIAR ATESTADO'].includes(command))return 'Envie seu atestado como PDF, JPG ou PNG, com até 5 MB. Ele será salvo na sua pasta para o RH analisar. Não é necessário informar sua senha.';
+  if(['3','RH','FALAR COM O RH'].includes(command)){await store.put('hr-request',cid,{owner:u.id,text:'Solicitou atendimento pelo WhatsApp',at:new Date().toISOString(),status:'pending'});return 'Sua solicitação foi encaminhada ao RH. A equipe poderá responder por este WhatsApp.';}
+  const mood=/^HUMOR\s+([1-5])$/i.exec(message.trim());
+  if(mood){await store.put('checkin',cid,{owner:u.id,day:day(),mood:Number(mood[1]),note:'',shared:u.shareMood===true,source:'whatsapp',at:new Date().toISOString()},lookup(secret,'checkin',u.id,day()));return 'Seu humor foi registrado conforme suas preferências de compartilhamento.';}
+  const stateId=lookup(secret,'bot-state',cid,u.id);
+  if(['MENU','INICIO','INÍCIO','OI','OLA','OLÁ'].includes(command)){await store.remove('bot-state',stateId,cid);return settings.greeting+'\n\n'+settings.menu;}
+  if(command==='4'){await store.put('bot-state',cid,{owner:u.id,aiUntil:new Date(Date.now()+15*60000).toISOString()},stateId);return 'Envie sua mensagem para a assistente. A IA precisa estar ativada pelo RH e autorizada no seu perfil. Envie MENU para voltar.';}
+  const state=await store.get('bot-state',stateId,cid);
+  if(state?.aiUntil&&Date.parse(state.aiUntil)>Date.now()){
+   if(!u.aiConsent)return 'Autorize a IA no seu perfil para conversar. Envie MENU para voltar aos serviços.';
+   try{return (await reply(u,message,'whatsapp')).text;}catch{return 'A assistente está indisponível. Envie MENU para continuar com os serviços automáticos.';}
+  }
+  return settings.greeting+'\n\n'+settings.menu;
+ };
+
  if(staticPath){
   app.use(express.static(staticPath,{maxAge:0,index:'index.html',setHeaders(res,path){res.setHeader('Cache-Control',path.endsWith('.html')?'no-store, max-age=0':path.includes('/assets/')?'public, max-age=31536000, immutable':'no-cache');}}));
   app.get('*',(req,res)=>{

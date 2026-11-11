@@ -1,0 +1,123 @@
+name: Gerar aplicativo Android
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "mobile/**"
+      - "src/**"
+      - "public/**"
+      - "index.html"
+      - "scripts/build-android-web.mjs"
+      - "package*.json"
+      - ".github/workflows/build-android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pontonorte-android
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - name: Configurar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Configurar Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.14.3
+      - name: Instalar interface integrada
+        working-directory: .
+        run: npm ci --ignore-scripts
+      - name: Instalar dependências
+        run: npm ci
+      - name: Definir versão crescente
+        run: echo "PN_VERSION_CODE=$((20000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+      - name: Sincronizar projeto Android
+        run: npm run android:sync
+      - name: Configurar assinatura permanente quando disponível
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [[ -n "$ANDROID_KEYSTORE_BASE64" && -n "$ANDROID_KEYSTORE_PASSWORD" && -n "$ANDROID_KEY_ALIAS" && -n "$ANDROID_KEY_PASSWORD" ]]; then
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/pontonorte-signing.jks"
+            chmod 600 "$RUNNER_TEMP/pontonorte-signing.jks"
+            echo "PN_SIGNING_STORE=$RUNNER_TEMP/pontonorte-signing.jks" >> "$GITHUB_ENV"
+            echo "PN_CHANNEL=android-latest" >> "$GITHUB_ENV"
+          else
+            echo "PN_CHANNEL=android-preview" >> "$GITHUB_ENV"
+            echo "::warning::Assinatura permanente ausente. Será publicado somente APK de teste; o canal de atualização automática de produção será preservado."
+          fi
+      - name: Testar código nativo e compilar APK
+        working-directory: mobile/android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [[ "$PN_CHANNEL" == "android-latest" ]]; then
+            gradle testReleaseUnitTest assembleRelease
+          else
+            gradle testDebugUnitTest assembleDebug
+          fi
+      - name: Remover chave do ambiente de compilação
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/pontonorte-signing.jks"
+      - name: Preparar APK e metadados verificáveis
+        run: |
+          if [[ "$PN_CHANNEL" == "android-latest" ]]; then
+            cp android/app/build/outputs/apk/release/app-release.apk PontoNorte.apk
+            APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
+            CERTIFICATE="$("$APKSIGNER" verify --print-certs PontoNorte.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+            node scripts/update-manifest.mjs PontoNorte.apk "$PN_VERSION_CODE" "$CERTIFICATE" "$GITHUB_SHA"
+          else
+            cp android/app/build/outputs/apk/debug/app-debug.apk PontoNorte-Teste.apk
+          fi
+      - name: Guardar artefato da compilação
+        uses: actions/upload-artifact@v4
+        with:
+          name: PontoNorte-Android-${{ github.run_number }}
+          path: |
+            mobile/PontoNorte*.apk
+            mobile/update.json
+          if-no-files-found: error
+      - name: Publicar versão para download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$PN_CHANNEL" == "android-latest" ]]; then
+            TAG="android-v$PN_VERSION_CODE"
+            printf 'Aplicativo PontoNorte 2.0.0, compilação %s.\nOrigem: %s\n' "$PN_VERSION_CODE" "$GITHUB_SHA" > release-notes.txt
+            gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --title "PontoNorte 2.0.0 ($PN_VERSION_CODE)" --notes-file release-notes.txt
+            gh release upload "$TAG" PontoNorte.apk update.json --clobber
+            gh release view android-latest >/dev/null 2>&1 || gh release create android-latest --target "$GITHUB_SHA" --title "PontoNorte Android" --notes-file release-notes.txt
+            gh release edit android-latest --prerelease=false --notes-file release-notes.txt
+            gh release upload android-latest PontoNorte.apk --clobber
+            gh release upload android-latest update.json --clobber
+          else
+            printf 'APK de teste com interface simplificada. Origem: %s. Assinatura permanente pendente; este arquivo não substitui o canal de produção nem é oferecido pelo atualizador.\n' "$GITHUB_SHA" > release-notes.txt
+            gh release view android-preview >/dev/null 2>&1 || gh release create android-preview --prerelease --target "$GITHUB_SHA" --title "PontoNorte — teste do aplicativo" --notes-file release-notes.txt
+            gh release edit android-preview --notes-file release-notes.txt
+            gh release upload android-preview PontoNorte-Teste.apk --clobber
+          fi
