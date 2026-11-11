@@ -139,3 +139,21 @@ O adaptador conserva identificadores e a derivação criptográfica anteriores p
 - A navegação móvel do colaborador tem Ponto, Tarefas, Documentos e Perfil na barra inferior.
 
 **Limites atuais:** biometria facial permanece indisponível até conectar um provedor com identificação e prova de vida; foto de comprovação não substitui isso. Câmera, GPS e impressão nativos ainda precisam de validação em aparelho físico. Um checklist é uma atribuição para uma data; recorrência automática ainda não existe. As regras de folha indicadas acima continuam pendentes.
+
+
+## Versão 2.3 — foto de perfil e crachá
+
+1. No cadastro pelo convite, o colaborador pode escolher uma foto. Ela é opcional e não exige aprovação do RH.
+2. Em **Meu perfil → Foto e crachá**, o colaborador troca/remove a foto e abre seu crachá. A foto também aparece na lista de pessoas e na identificação do perfil.
+3. O RH configura a logo em **Mais → Jornada e atendimento → Logo e crachá**. Ela passa a compor os cartões de toda a empresa.
+4. Em **Colaboradores**, a ação principal é **Ver crachá**. A edição e a ativação/desativação permanecem em **Gerenciar**.
+5. O crachá mostra logo/nome da empresa, foto, nome, função, setor, código individual e QR de consulta. Sem foto ou logo, mostra uma identificação visual provisória.
+6. Em **Imprimir crachás**, selecione pessoas, filtre por setor e defina as cópias. Até 60 cartões por lote, em folhas A4, com cada cartão medindo 54 × 86 mm. Também é possível imprimir cópias pelo cartão individual. A impressão física e o seletor de fotos em Android real ainda precisam de conferência em aparelho.
+
+### Consulta online
+
+O QR abre uma consulta por um identificador criptográfico que não serve para autenticação ou registro de ponto. Ela mostra nome/foto, empresa/logo, função, setor, código e situação atual do cadastro. Telefone, e-mail, nascimento, documentos e marcações não são expostos. O identificador fica no fragmento da URL, para não entrar no caminho dos logs HTTP; a consulta da API usa POST.
+
+Desativar a conta faz a consulta indicar cadastro desativado. **Renovar QR do crachá**, na visualização do RH, invalida o link anterior e exige reimpressão. Fotos/logos são decodificados e regravados no servidor sem metadados EXIF, em registros criptografados separados das evidências de ponto e serviço. A foto escolhida pelo usuário não constitui reconhecimento biométrico nem aprovação de identidade pelo RH.
+
+A seleção para impressão de crachás e etiquetas usa uma tabela compacta, com busca, setor, código, seleção e quantidade na mesma linha. A lista tem rolagem própria e o resumo informa os selecionados e o total de cópias.

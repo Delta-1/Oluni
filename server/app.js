@@ -4,11 +4,13 @@ import {fail,digest,token,lookup,day,text,profile,hashPassword,verifyPassword,li
 import {companion} from './ai.js';
 import {installAttendance,installPublicAttendance,resolveAccess,ensureEmployeeCode} from './attendance.js';
 import {validMethod} from './workforce-policy.js';
+import {createBadgeService,normalizeIdentityImage} from './badges.js';
+import {serial as attendanceSerial} from './attendance.js';
 const wrap=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
 const validCode=v=>String(v||'').replace(/[^a-z0-9]/gi,'').toUpperCase();
 const reportSafe=r=>({id:r.id,category:r.category,title:r.title,body:r.body,status:r.status,day:r.day,reply:r.reply||'',anonymous:true});
 const feedbackSafe=f=>({id:f.id,rating:f.rating,body:f.body,day:f.day,anonymous:f.anonymous,author:f.author||null});
-export function createApp({store,secret,gateway=null,ai=companion,staticPath}){
+export function createApp({store,secret,gateway=null,ai=companion,staticPath,publicAppUrl}){
  const app=express();app.disable('x-powered-by');app.set('trust proxy',1);
  app.use((req,res,next)=>{res.set({'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','Permissions-Policy':'camera=(self), microphone=(), geolocation=(self)','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"});if(req.path.startsWith('/api')){
   res.set('Cache-Control','no-store');
@@ -28,20 +30,22 @@ export function createApp({store,secret,gateway=null,ai=companion,staticPath}){
  const settingsFor=cid=>store.get('settings',lookup(secret,'settings',cid),cid);
  const companyFor=async id=>{const c=await store.get('company',id,id);if(!c)throw fail(404,'Empresa não encontrada.');return c;};
  const issue=async(user,remember)=>{const raw=token(),id=lookup(secret,'session',digest(raw));await store.put('session',user.companyId,{userId:user.id,companyId:user.companyId,expiresAt:new Date(Date.now()+(remember?30*86400000:8*3600000)).toISOString()},id,true);return {token:raw,user:publicUser(user)};};
- route('get','/health',async(req,res)=>{const healthy=await store.health();res.status(healthy?200:503).json({service:'Oluni',version:'2.2.0',database:healthy});});
+ route('get','/health',async(req,res)=>{const healthy=await store.health();res.status(healthy?200:503).json({service:'Oluni',version:'2.3.0',database:healthy});});
+ const badges=createBadgeService({route,store,secret,companyFor,forUser:u=>ensureEmployeeCode(store,secret,u),publicAppUrl,serial:attendanceSerial});
  let attendance;
  const verification=installPublicAttendance({route,store,secret,gateway,limiter,companyFor,getAttendance:()=>attendance});
  const authLimit=limiter(20,900000);
- route('post','/auth/register',authLimit,async(req,res)=>{const p=profile(req.body),passwordHash=await hashPassword(req.body.password),id=lookup(secret,'email',p.email);if(await store.get('user',id))throw fail(409,'Não foi possível cadastrar. Se já tem uma conta, faça login.');const isAdmin=req.body.mode==='company';let c,codeId;
+ route('post','/auth/register',authLimit,async(req,res)=>{const p=profile(req.body),passwordHash=await hashPassword(req.body.password),id=lookup(secret,'email',p.email);if(await store.get('user',id))throw fail(409,'Não foi possível cadastrar. Se já tem uma conta, faça login.');const photo=req.body.photo?await normalizeIdentityImage(req.body.photo):null;const isAdmin=req.body.mode==='company';let c,codeId;
  if(isAdmin){const companyId='moodcorp:'+randomUUID(),code=randomBytes(5).toString('hex').toUpperCase();c={id:companyId,name:text(req.body.companyName,2,120),sector:text(req.body.sector||'Serviços',2,100),attendanceMethod:validMethod(req.body.attendanceMethod||'code'),code,createdAt:new Date().toISOString()};codeId=lookup(secret,'code',code);await store.put('company',companyId,c,companyId,true);try{await store.put('code',companyId,{companyId},codeId,true);}catch(e){await store.remove('company',companyId,companyId);throw e;}}
  else {c=await resolveAccess(store,secret,req.body.invite,'invite');}
  if(!isAdmin){p.departmentId=c.invitedDepartment?.id||null;p.department=c.invitedDepartment?.name||'Geral';}
  const user={...p,id,companyId:c.id,role:isAdmin?'admin':'employee',active:true,passwordHash,shareMood:false,aiConsent:false,whatsappConsent:false,createdAt:new Date().toISOString()};
- try{await store.put('user',c.id,user,id,true);}catch(e){if(isAdmin){await store.remove('code',codeId,c.id);await store.remove('company',c.id,c.id);}throw e;}
+ let photoId;try{photoId=await badges.addRegistrationPhoto(user,photo);await store.put('user',c.id,user,id,true);}catch(e){if(photoId)await store.remove('identity-image',photoId,c.id);if(isAdmin){await store.remove('code',codeId,c.id);await store.remove('company',c.id,c.id);}throw e;}
  res.status(201).json(await issue(await ensureEmployeeCode(store,secret,user),req.body.remember===true));});
  route('post','/auth/login',authLimit,async(req,res)=>{const email=String(req.body.email||'').trim().toLowerCase(),u=await store.get('user',lookup(secret,'email',email));if(!await verifyPassword(req.body.password,u?.passwordHash)||!u?.active)throw fail(401,'E-mail ou senha incorretos.');res.json(await issue(await ensureEmployeeCode(store,secret,u),req.body.remember===true));});
  route('post','/reports/lookup',limiter(20,900000),async(req,res)=>{const capability=String(req.body.protocol||'').trim();if(!/^[\w-]{43}$/.test(capability))throw fail(404,'Protocolo não encontrado.');const r=await store.get('report',lookup(secret,'report',digest(capability)));if(!r)throw fail(404,'Protocolo não encontrado.');res.json(reportSafe(r));});
  app.use('/api',wrap(auth));
+ badges.installAuthenticated(admin);
  route('post','/profile/whatsapp/request',async(req,res)=>{if(!gateway?.sendText||(await gateway.status(req.user.companyId)).status!=='connected')throw fail(409,'O RH precisa conectar o WhatsApp da empresa primeiro.');await verification.sendOTP('verify',req.user);res.json({ok:true});});
  route('post','/profile/whatsapp/verify',async(req,res)=>{await verification.consume('verify',req.user.email,req.body.code,async u=>{if((await store.list('user',u.companyId)).some(other=>other.id!==u.id&&other.whatsappJid===u.phone+'@s.whatsapp.net'))throw fail(409,'Este WhatsApp já está vinculado a outra conta. Procure o RH.');u.phoneVerified=true;u.whatsappConsent=true;u.whatsappJid=u.phone+'@s.whatsapp.net';await store.put('user',u.companyId,u,u.id);});res.json({ok:true});});
  route('post','/auth/logout',async(req,res)=>{await store.remove('session',req.sessionId,req.user.companyId);res.json({ok:true});});
