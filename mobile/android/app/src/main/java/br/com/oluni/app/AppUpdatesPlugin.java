@@ -1,4 +1,4 @@
-package br.com.pontonorte.app;
+package br.com.oluni.app;
 
 import android.content.Intent;
 import android.content.pm.PackageInfo;
@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 @CapacitorPlugin(name = "AppUpdates")
 public class AppUpdatesPlugin extends Plugin {
-    private static final String FEED = "https://github.com/Delta-1/MoodCorp/releases/download/android-latest/update.json";
+    private static final String FEED = "https://github.com/Delta-1/Oluni/releases/download/android-latest/update.json";
     private static final long MAX_APK = 150L * 1024 * 1024;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final AtomicBoolean installing = new AtomicBoolean(false);
@@ -56,7 +56,7 @@ public class AppUpdatesPlugin extends Plugin {
             if (!UpdatePolicy.allowedDownload(address)) throw new Exception("Origem de atualização não autorizada.");
             HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
             connection.setConnectTimeout(15000); connection.setReadTimeout(30000); connection.setInstanceFollowRedirects(false);
-            connection.setRequestProperty("User-Agent", "PontoNorte-Android");
+            connection.setRequestProperty("User-Agent", "Oluni-Android");
             int status = connection.getResponseCode();
             if (status >= 300 && status < 400) {
                 String location = connection.getHeaderField("Location");
@@ -106,7 +106,7 @@ public class AppUpdatesPlugin extends Plugin {
     private File download(JSONObject metadata) throws Exception {
         File folder = new File(getContext().getCacheDir(), "updates");
         if (!folder.exists() && !folder.mkdirs()) throw new Exception("Sem espaço para baixar a atualização.");
-        File target = new File(folder, "PontoNorte-" + metadata.getLong("versionCode") + ".apk");
+        File target = new File(folder, "Oluni-" + metadata.getLong("versionCode") + ".apk");
         if (target.isFile() && target.length() == metadata.getLong("size") && fileHash(target).equalsIgnoreCase(metadata.getString("sha256"))) return target;
         HttpURLConnection connection = open(metadata.getString("url"));
         try (InputStream input = connection.getInputStream(); FileOutputStream output = new FileOutputStream(target)) {

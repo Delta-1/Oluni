@@ -1,20 +1,19 @@
-# Ponto Norte integrado
+# Oluni integrado
 
-O MoodCorp passa a apresentar o produto Ponto Norte, com ponto como atividade
-principal e os módulos existentes de feedback, relatos anônimos, bem-estar e IA.
+O Oluni reúne em um só aplicativo o registro de ponto e os módulos de feedback, relatos anônimos, bem-estar e IA.
 
 ## Infraestrutura utilizada
 
-- Repositório: Delta-1/MoodCorp; publicação automática da branch main.
-- Aplicativo e API: https://moodcorp-production.up.railway.app
-- Banco existente do MoodCorp: `qaiqflcxfxygynumapyp`.
+- Repositório: Delta-1/Oluni; publicação automática da branch main.
+- Aplicativo e API: https://oluni.up.railway.app
+- Banco utilizado: `qaiqflcxfxygynumapyp`.
 - WhatsApp: processo persistente do próprio aplicativo no Railway, com sessão
   independente por empresa. Nenhuma alteração no serviço WORKSPACES.
-- O banco original do Ponto Norte (`eqjgumevweiswqhogvgk`) permanece intacto:
+- O banco original do Oluni (`eqjgumevweiswqhogvgk`) permanece intacto:
   o conector disponível não tem permissão para administrá-lo. Não houve
   transferência de seus usuários, marcações ou históricos.
 
-Os registros permanecem no contrato de armazenamento já utilizado pelo MoodCorp,
+Os registros permanecem no contrato de armazenamento existente,
 com filtro de aplicativo e empresa e conteúdo criptografado. Não houve alteração
 de esquema, de credenciais ou do segredo de criptografia do banco compartilhado.
 
@@ -33,7 +32,7 @@ cada link separadamente. A renovação invalida o anterior e preserva as contas.
 
 ## Ponto e relatórios
 
-O fluxo segue o Ponto Norte atualizado: entrada, início do intervalo, fim do
+O fluxo segue o Oluni atualizado: entrada, início do intervalo, fim do
 intervalo e saída. O funcionário tem um botão principal e o histórico ao lado.
 O horário é atribuído pelo servidor; a sequência e a repetição de requisições
 são verificadas. Um intervalo de 30 segundos bloqueia duplo toque acidental.
@@ -78,12 +77,12 @@ sem URL pública. Funcionário consulta seus arquivos; RH consulta os da empresa
 
 ## Android e atualizações
 
-O diretório `mobile` contém o aplicativo nativo reaproveitado do Ponto Norte,
-com identidade Android própria (`br.com.pontonorte.app`) e a mesma interface do site. O build
+O diretório `mobile` contém o aplicativo nativo reaproveitado do Oluni,
+com identidade Android própria (`br.com.oluni.app`) e a mesma interface do site. O build
 consome a API do Railway. O GitHub Actions gera e publica automaticamente o APK
 quando a interface ou o aplicativo muda.
 
-- Release de teste: `https://github.com/Delta-1/MoodCorp/releases/tag/android-preview`.
+- Release de teste: `https://github.com/Delta-1/Oluni/releases/tag/android-preview`.
 - Atualizador: procura o canal `android-latest` deste repositório, verifica
   versão, origem, hash do arquivo e certificado antes de abrir o instalador.
 - Produção exige os segredos `ANDROID_KEYSTORE_BASE64`,
@@ -94,10 +93,10 @@ quando a interface ou o aplicativo muda.
 
 ## Limpeza autorizada de contas
 
-O usuário solicitou a remoção das contas cadastradas no MoodCorp. O procedimento
+A limpeza inicial de contas foi solicitada pelo usuário. O procedimento
 `PONTONORTE_RESET_ACCOUNTS_ONCE` é executado uma única vez por identificador e
 registra contagens em um marcador de manutenção. Remove empresas, usuários,
-sessões, códigos e vínculos de acesso exclusivamente do namespace MoodCorp.
+sessões, códigos e vínculos de acesso exclusivamente do namespace exclusivo do aplicativo.
 Conteúdos históricos são preservados sem acesso pelas contas removidas.
 
 A variável deve ser esvaziada após confirmar o log da execução. O marcador
@@ -110,3 +109,17 @@ concorrente e idempotente, totem, jornadas noturnas, documentos privados,
 recuperação de senha, bot sem IA e limpeza de contas executada uma única vez.
 O número real da empresa precisa ser conectado por QR antes do teste de
 mensagens no WhatsApp. Reconhecimento facial e teste em Android físico pendentes.
+
+## Melhorias da versão 2.1
+
+- Nome Oluni no site, Android, mensagens e relatórios.
+- Cadastro de empresa reduzido: nome da empresa, responsável, WhatsApp, e-mail e senha. Nascimento permanece obrigatório para colaboradores.
+- O e-mail permanece preenchido durante a recuperação de senha.
+- Totem com teclado numérico e aviso de falta de conexão.
+- Repetição de tentativa de ponto usa o mesmo identificador se a resposta for perdida.
+- Painel inicial com primeiros passos e indicadores que abrem a área correspondente.
+- Administrador também encontra Meu ponto no menu Mais.
+- Navegação dos módulos de bem-estar voltou a abrir as telas indicadas.
+- Perfil verifica WhatsApp em um único fluxo, sem exigir enviar um código longo ao bot.
+
+O adaptador conserva identificadores e a derivação criptográfica anteriores para manter os registros legíveis. A marca apresentada aos usuários é Oluni. A variável de segredo anterior continua aceita por compatibilidade; não deve ser rotacionada durante a troca de marca.

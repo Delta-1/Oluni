@@ -17,7 +17,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: pontonorte-android
+  group: oluni-android
   cancel-in-progress: true
 
 jobs:
@@ -61,9 +61,9 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           if [[ -n "$ANDROID_KEYSTORE_BASE64" && -n "$ANDROID_KEYSTORE_PASSWORD" && -n "$ANDROID_KEY_ALIAS" && -n "$ANDROID_KEY_PASSWORD" ]]; then
-            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/pontonorte-signing.jks"
-            chmod 600 "$RUNNER_TEMP/pontonorte-signing.jks"
-            echo "PN_SIGNING_STORE=$RUNNER_TEMP/pontonorte-signing.jks" >> "$GITHUB_ENV"
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/oluni-signing.jks"
+            chmod 600 "$RUNNER_TEMP/oluni-signing.jks"
+            echo "PN_SIGNING_STORE=$RUNNER_TEMP/oluni-signing.jks" >> "$GITHUB_ENV"
             echo "PN_CHANNEL=android-latest" >> "$GITHUB_ENV"
           else
             echo "PN_CHANNEL=android-preview" >> "$GITHUB_ENV"
@@ -83,23 +83,23 @@ jobs:
           fi
       - name: Remover chave do ambiente de compilação
         if: always()
-        run: rm -f -- "$RUNNER_TEMP/pontonorte-signing.jks"
+        run: rm -f -- "$RUNNER_TEMP/oluni-signing.jks"
       - name: Preparar APK e metadados verificáveis
         run: |
           if [[ "$PN_CHANNEL" == "android-latest" ]]; then
-            cp android/app/build/outputs/apk/release/app-release.apk PontoNorte.apk
+            cp android/app/build/outputs/apk/release/app-release.apk Oluni.apk
             APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
-            CERTIFICATE="$("$APKSIGNER" verify --print-certs PontoNorte.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
-            node scripts/update-manifest.mjs PontoNorte.apk "$PN_VERSION_CODE" "$CERTIFICATE" "$GITHUB_SHA"
+            CERTIFICATE="$("$APKSIGNER" verify --print-certs Oluni.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+            node scripts/update-manifest.mjs Oluni.apk "$PN_VERSION_CODE" "$CERTIFICATE" "$GITHUB_SHA"
           else
-            cp android/app/build/outputs/apk/debug/app-debug.apk PontoNorte-Teste.apk
+            cp android/app/build/outputs/apk/debug/app-debug.apk Oluni-Teste.apk
           fi
       - name: Guardar artefato da compilação
         uses: actions/upload-artifact@v4
         with:
-          name: PontoNorte-Android-${{ github.run_number }}
+          name: Oluni-Android-${{ github.run_number }}
           path: |
-            mobile/PontoNorte*.apk
+            mobile/Oluni*.apk
             mobile/update.json
           if-no-files-found: error
       - name: Publicar versão para download
@@ -108,16 +108,19 @@ jobs:
         run: |
           if [[ "$PN_CHANNEL" == "android-latest" ]]; then
             TAG="android-v$PN_VERSION_CODE"
-            printf 'Aplicativo PontoNorte 2.0.0, compilação %s.\nOrigem: %s\n' "$PN_VERSION_CODE" "$GITHUB_SHA" > release-notes.txt
-            gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --title "PontoNorte 2.0.0 ($PN_VERSION_CODE)" --notes-file release-notes.txt
-            gh release upload "$TAG" PontoNorte.apk update.json --clobber
-            gh release view android-latest >/dev/null 2>&1 || gh release create android-latest --target "$GITHUB_SHA" --title "PontoNorte Android" --notes-file release-notes.txt
-            gh release edit android-latest --prerelease=false --notes-file release-notes.txt
-            gh release upload android-latest PontoNorte.apk --clobber
+            printf 'Aplicativo Oluni 2.1.0, compilação %s.\nOrigem: %s\n' "$PN_VERSION_CODE" "$GITHUB_SHA" > release-notes.txt
+            gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --title "Oluni 2.1.0 ($PN_VERSION_CODE)" --notes-file release-notes.txt
+            gh release upload "$TAG" Oluni.apk update.json --clobber
+            gh release view android-latest >/dev/null 2>&1 || gh release create android-latest --target "$GITHUB_SHA" --title "Oluni Android" --notes-file release-notes.txt
+            gh release edit android-latest --title "Oluni Android" --prerelease=false --notes-file release-notes.txt
+            gh release upload android-latest Oluni.apk --clobber
             gh release upload android-latest update.json --clobber
           else
             printf 'APK de teste com interface simplificada. Origem: %s. Assinatura permanente pendente; este arquivo não substitui o canal de produção nem é oferecido pelo atualizador.\n' "$GITHUB_SHA" > release-notes.txt
-            gh release view android-preview >/dev/null 2>&1 || gh release create android-preview --prerelease --target "$GITHUB_SHA" --title "PontoNorte — teste do aplicativo" --notes-file release-notes.txt
-            gh release edit android-preview --notes-file release-notes.txt
-            gh release upload android-preview PontoNorte-Teste.apk --clobber
+            gh release view android-preview >/dev/null 2>&1 || gh release create android-preview --prerelease --target "$GITHUB_SHA" --title "Oluni — teste do aplicativo" --notes-file release-notes.txt
+            gh release edit android-preview --title "Oluni — aplicativo de teste" --notes-file release-notes.txt
+            gh release upload android-preview Oluni-Teste.apk --clobber
+            if gh release view android-preview --json assets --jq '.assets[].name' | rg -q '^PontoNorte-Teste\.apk$'; then
+              gh release delete-asset android-preview PontoNorte-Teste.apk --yes
+            fi
           fi

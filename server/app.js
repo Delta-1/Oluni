@@ -27,7 +27,7 @@ export function createApp({store,secret,gateway=null,ai=companion,staticPath}){
  const settingsFor=cid=>store.get('settings',lookup(secret,'settings',cid),cid);
  const companyFor=async id=>{const c=await store.get('company',id,id);if(!c)throw fail(404,'Empresa não encontrada.');return c;};
  const issue=async(user,remember)=>{const raw=token(),id=lookup(secret,'session',digest(raw));await store.put('session',user.companyId,{userId:user.id,companyId:user.companyId,expiresAt:new Date(Date.now()+(remember?30*86400000:8*3600000)).toISOString()},id,true);return {token:raw,user:publicUser(user)};};
- route('get','/health',async(req,res)=>{const healthy=await store.health();res.status(healthy?200:503).json({service:'Ponto Norte',version:'2.0.0',database:healthy});});
+ route('get','/health',async(req,res)=>{const healthy=await store.health();res.status(healthy?200:503).json({service:'Oluni',version:'2.1.0',database:healthy});});
  let attendance;
  const verification=installPublicAttendance({route,store,secret,gateway,limiter,companyFor,getAttendance:()=>attendance});
  const authLimit=limiter(20,900000);
@@ -84,10 +84,10 @@ export function createApp({store,secret,gateway=null,ai=companion,staticPath}){
    target.whatsappJid=jid;
    if(jid===target.phone+'@s.whatsapp.net')target.phoneVerified=true;
    await store.put('user',cid,target,target.id);await store.remove('wa-link',id,cid);
-   return 'Seu WhatsApp foi vinculado ao Ponto Norte. Envie MENU para começar. Para registrar humor, envie HUMOR e um número de 1 a 5. Envie PARAR para encerrar.';
+   return 'Seu WhatsApp foi vinculado ao Oluni. Envie MENU para começar. Para registrar humor, envie HUMOR e um número de 1 a 5. Envie PARAR para encerrar.';
   }
   if(!u)return null;
-  if(/^(PARAR|SAIR|STOP)$/i.test(message.trim())){u.whatsappConsent=false;await store.put('user',cid,u,u.id);return 'Atendimento por WhatsApp desativado. Você pode reativar pelo perfil no Ponto Norte.';}
+  if(/^(PARAR|SAIR|STOP)$/i.test(message.trim())){u.whatsappConsent=false;await store.put('user',cid,u,u.id);return 'Atendimento por WhatsApp desativado. Você pode reativar pelo perfil no Oluni.';}
   const c=await companyFor(cid),settings=(await attendance.mine(u)).settings;
   if(attachment){
    try{await attendance.saveDocument(u,attachment,'whatsapp');return 'Recebemos seu documento e colocamos na sua pasta. O RH fará a análise. Você pode acompanhar pelo aplicativo.';}

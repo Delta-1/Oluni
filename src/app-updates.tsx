@@ -16,11 +16,12 @@ export function AppUpdateNotice() {
   const active = useRef(true);
   const check = useCallback(async (manual = false) => {
     if (!Capacitor.isNativePlatform()) return;
-    if (!manual && Date.now() - Number(localStorage.getItem("pontonorte_update_checked") || 0) < 6 * 60 * 60 * 1000) return;
+    let checked=0;try{checked=Number(localStorage.getItem("oluni_update_checked")||0);}catch{}
+    if (!manual && Date.now()-checked < 6*60*60*1000) return;
     try {
       checkPending ??= updates.check().finally(() => { checkPending = null; });
       const result = await checkPending;
-      localStorage.setItem("pontonorte_update_checked", String(Date.now()));
+      try{localStorage.setItem("oluni_update_checked", String(Date.now()));}catch{}
       if (!active.current) return;
       setOffer(result.available ? result : null);
       if (manual) setMessage(result.available ? "" : result.incompatible ? "Esta versão precisa ser instalada pelo responsável para configurar a assinatura permanente." : result.notConfigured ? "As atualizações de produção ainda precisam ser ativadas pelo responsável." : "Seu aplicativo está atualizado.");
@@ -30,8 +31,8 @@ export function AppUpdateNotice() {
     active.current = true; void check();
     const resume = () => { if (!document.hidden) void check(); };
     const manual = () => { void check(true); };
-    document.addEventListener("visibilitychange", resume); window.addEventListener("pontonorte-check-updates", manual);
-    return () => { active.current = false; document.removeEventListener("visibilitychange", resume); window.removeEventListener("pontonorte-check-updates", manual); };
+    document.addEventListener("visibilitychange", resume); window.addEventListener("oluni-check-updates", manual);
+    return () => { active.current = false; document.removeEventListener("visibilitychange", resume); window.removeEventListener("oluni-check-updates", manual); };
   }, [check]);
   async function install() {
     if (busy) return; setBusy(true); setMessage("");
@@ -44,4 +45,4 @@ export function AppUpdateNotice() {
   if (!offer && !message) return null;
   return <aside className="app-update-notice" aria-label="Atualização do aplicativo"><div role="status"><b>{offer ? `Nova versão ${offer.version}` : "Atualizações"}</b><p>{message || "Seu ponto continua disponível. Atualize quando puder."}</p></div>{offer ? <button className="primary" onClick={install} disabled={busy}>{busy ? <RefreshCw className="spin" /> : <Download />}{busy ? "Baixando…" : "Atualizar"}</button> : null}<button className="update-close" disabled={busy} onClick={() => { setOffer(null); setMessage(""); }} aria-label="Fechar aviso de atualização"><X /></button></aside>;
 }
-export function checkForAppUpdates() { window.dispatchEvent(new Event("pontonorte-check-updates")); }
+export function checkForAppUpdates() { window.dispatchEvent(new Event("oluni-check-updates")); }

@@ -1,5 +1,5 @@
 import {defineConfig} from 'vite';
-export default defineConfig({base:process.env.GITHUB_PAGES==='true'?'/MoodCorp/':'/',server:{allowedHosts:['terminal.local']},plugins:[{name:'local-preview-api',async configureServer(server){
+export default defineConfig({base:process.env.GITHUB_PAGES==='true'?'/Oluni/':'/',server:{allowedHosts:['terminal.local']},plugins:[{name:'local-preview-api',async configureServer(server){
  // The development server is explicitly ephemeral. Production never imports
  // MemoryStore and refuses to start without real database credentials.
  const {MemoryStore}=await import('./server/store.js');

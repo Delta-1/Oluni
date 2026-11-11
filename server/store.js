@@ -5,7 +5,7 @@ import {fail,vault} from './security.js';
 // a namespace on every query, and an independent encryption key isolate the app.
 export class SupabaseStore {
  constructor(db,secret){this.db=db;this.crypt=vault(secret);}
- async init(){const owner='moodcorp:storage:v1';let {data,error}=await this.db.from('startsys_companies').select('id').eq('owner_id',owner).maybeSingle();if(error)throw fail(503,'Não foi possível conectar o armazenamento.');if(!data){const result=await this.db.from('startsys_companies').insert({owner_id:owner,name:'MoodCorp · armazenamento',settings:{application:'moodcorp',autoReply:false,teamEnabled:false}}).select('id').single();if(result.error){const retry=await this.db.from('startsys_companies').select('id').eq('owner_id',owner).single();if(retry.error)throw fail(503,'Não foi possível preparar o armazenamento.');data=retry.data;}else data=result.data;}this.root=data.id;}
+ async init(){const owner='moodcorp:storage:v1';let {data,error}=await this.db.from('startsys_companies').select('id').eq('owner_id',owner).maybeSingle();if(error)throw fail(503,'Não foi possível conectar o armazenamento.');if(!data){const result=await this.db.from('startsys_companies').insert({owner_id:owner,name:'Oluni · armazenamento',settings:{application:'moodcorp',autoReply:false,teamEnabled:false}}).select('id').single();if(result.error){const retry=await this.db.from('startsys_companies').select('id').eq('owner_id',owner).single();if(retry.error)throw fail(503,'Não foi possível preparar o armazenamento.');data=retry.data;}else data=result.data;}this.root=data.id;}
  query(kind){return this.db.from('startsys_records').select('*').eq('company_id',this.root).eq('kind','moodcorp.v1.'+kind);}
  decode(row){return row?{...this.crypt.open(row.data.value),id:row.id}:null;}
  async get(kind,id,tenant){let q=this.query(kind).eq('id',id);if(tenant)q=q.eq('data->>tenant',tenant);const {data,error}=await q.maybeSingle();if(error)throw fail(503,'Não foi possível consultar os dados.');return this.decode(data);}
@@ -17,7 +17,7 @@ export class SupabaseStore {
   const counts={};
   // Delete known account kinds inside this application's carrier only. Avoid
   // decrypting thousands of authentication records or one network call per row.
-  for(const kind of kinds){const {error,count}=await this.db.from('startsys_records').delete({count:'exact'}).eq('company_id',this.root).eq('kind','moodcorp.v1.'+kind);if(error)throw fail(503,'Não foi possível concluir a limpeza autorizada.');counts[kind]=count||0;console.log('Ponto Norte: limpeza de acessos',kind,counts[kind]);}
+  for(const kind of kinds){const {error,count}=await this.db.from('startsys_records').delete({count:'exact'}).eq('company_id',this.root).eq('kind','moodcorp.v1.'+kind);if(error)throw fail(503,'Não foi possível concluir a limpeza autorizada.');counts[kind]=count||0;console.log('Oluni: limpeza de acessos',kind,counts[kind]);}
   return counts;
  }
 }

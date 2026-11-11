@@ -1,4 +1,4 @@
-package br.com.pontonorte.app;
+package br.com.oluni.app;
 
 import java.net.URI;
 import java.util.Arrays;
@@ -18,6 +18,6 @@ final class UpdatePolicy {
     }
     static boolean validHash(String value) { return value != null && value.matches("[a-fA-F0-9]{64}"); }
     static boolean officialApk(String value) {
-        return allowedDownload(value) && value.matches("https://github\\.com/Delta-1/MoodCorp/releases/download/android-v[0-9]+/PontoNorte\\.apk");
+        return allowedDownload(value) && value.matches("https://github\\.com/Delta-1/Oluni/releases/download/android-v[0-9]+/Oluni\\.apk");
     }
 }

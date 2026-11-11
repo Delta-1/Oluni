@@ -1,4 +1,4 @@
-name: Deploy MoodCorp Pages
+name: Publicar Oluni
 on:
   push:
     branches: [main]
@@ -26,7 +26,7 @@ jobs:
         run: npm run build
         env:
           GITHUB_PAGES: 'true'
-          VITE_API_URL: https://moodcorp-production.up.railway.app
+          VITE_API_URL: https://oluni.up.railway.app
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

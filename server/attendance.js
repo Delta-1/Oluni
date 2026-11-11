@@ -1,7 +1,7 @@
 import {createHmac, randomInt, timingSafeEqual} from 'node:crypto';
 import {fail, lookup, digest, text, publicUser, hashPassword, token} from './security.js';
 
-// Keep the same event order as PontoNorte/mobile/src/clock-flow.ts.
+// Keep the same event order as Oluni/mobile/src/clock-flow.ts.
 export const events = ['entry', 'break_start', 'break_end', 'exit'];
 export const eventLabels = {entry:'Entrada', break_start:'Início do intervalo', break_end:'Fim do intervalo', exit:'Saída'};
 const queues = new Map();
@@ -210,7 +210,7 @@ export function installPublicAttendance({route,store,secret,gateway,limiter,comp
     const code=String(randomInt(100000,1000000));
     const saved={owner:user.id,companyId:user.companyId,phone:user.phone,hash:lookup(secret,'otp-value',purpose,user.id,code),attempts:0,expiresAt:new Date(Date.now()+10*60000).toISOString()};
     await store.put('otp',user.companyId,saved,id);
-    try{await gateway.sendText(user.companyId,user.phone+'@s.whatsapp.net',`Ponto Norte: seu código para ${purpose==='reset'?'redefinir a senha':'verificar o WhatsApp'} é ${code}. Válido por 10 minutos. Não compartilhe.`);}
+    try{await gateway.sendText(user.companyId,user.phone+'@s.whatsapp.net',`Oluni: seu código para ${purpose==='reset'?'redefinir a senha':'verificar o WhatsApp'} é ${code}. Válido por 10 minutos. Não compartilhe.`);}
     catch{await store.remove('otp',id,user.companyId);}
   });
   const consume=async(purpose,email,code,fn)=>serial('otp:'+purpose+':'+email,async()=>{

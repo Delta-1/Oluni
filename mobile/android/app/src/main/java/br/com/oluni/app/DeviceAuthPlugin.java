@@ -1,4 +1,4 @@
-package br.com.pontonorte.app;
+package br.com.oluni.app;
 
 import android.app.KeyguardManager;
 import android.content.Context;
@@ -56,7 +56,7 @@ public class DeviceAuthPlugin extends Plugin {
                 }
             );
 
-            String title = call.getString("title", "Desbloquear PontoNorte");
+            String title = call.getString("title", "Desbloquear Oluni");
             String subtitle = call.getString("subtitle", "Confirme sua identidade no aparelho");
             BiometricPrompt.PromptInfo promptInfo = new BiometricPrompt.PromptInfo.Builder()
                 .setTitle(title)

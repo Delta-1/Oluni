@@ -40,7 +40,7 @@ test('malformed cached sessions are ignored and remembered login tolerates quota
  const memory=new Map();const session={getItem:key=>memory.get(key),removeItem:key=>memory.delete(key),setItem:(key,value)=>memory.set(key,value)};
  const local={getItem:()=>'{old invalid session}',removeItem(){throw Error('blocked');},setItem(){throw Error('QuotaExceededError');}};
  const state=createSessionState({localStorage:local,sessionStorage:session});assert.equal(state.get(),'');state.set('c'.repeat(43),true);
- assert.equal(memory.get('moodcorp.session'),'c'.repeat(43));state.set('');assert.equal(memory.size,0);
+ assert.equal(memory.get('oluni.session'),'c'.repeat(43));state.set('');assert.equal(memory.size,0);
 });
 
 test('GitHub Pages can reach the API through restricted CORS, including authenticated preflights',async t=>{

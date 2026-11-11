@@ -1,4 +1,4 @@
-package br.com.pontonorte.app;
+package br.com.oluni.app;
 
 import android.os.Bundle;
 import com.getcapacitor.BridgeActivity;
