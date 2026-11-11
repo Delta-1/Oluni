@@ -1,6 +1,6 @@
 {
   "name": "oluni",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -15,9 +15,11 @@
   },
   "dependencies": {
     "@capacitor/core": "8.5.1",
+    "@capacitor/geolocation": "8.2.4",
     "@supabase/supabase-js": "2.110.1",
     "baileys": "7.0.0-rc13",
     "express": "4.22.3",
+    "jsqr": "1.4.0",
     "lucide-react": "0.468.0",
     "pino": "9.6.0",
     "qrcode": "1.5.4",
@@ -27,6 +29,7 @@
   "devDependencies": {
     "@types/react": "19.2.2",
     "@types/react-dom": "19.2.2",
+    "pngjs": "7.0.0",
     "typescript": "5.9.3",
     "vite": "7.3.7"
   }

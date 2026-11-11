@@ -22,9 +22,9 @@ de esquema, de credenciais ou do segredo de criptografia do banco compartilhado.
 1. Abra o site e escolha **Começar agora** para cadastrar a empresa e seu RH.
 2. Em **Hoje**, copie o convite e compartilhe com a equipe.
 3. Cada colaborador abre o convite e cadastra nome, WhatsApp, nascimento,
-   função, setor, e-mail e senha. O servidor define a empresa e o perfil.
+   função, e-mail e senha. O setor vem do convite escolhido pelo RH. O servidor define a empresa e o perfil.
 4. Nos acessos seguintes, todos usam somente e-mail e senha.
-5. Em **Colaboradores**, o RH encontra o código individual de seis números.
+5. Em **Colaboradores**, o RH encontra o código individual: 0000 para o administrador, 0001 para o primeiro colaborador.
 6. Abra **Totem** em um aparelho da empresa. O colaborador digita seu código.
 
 Links expiram após 180 dias. Em **Mais → Convite e totem**, o RH pode renovar
@@ -41,7 +41,7 @@ Uma jornada em aberto continua no dia de origem se o último registro ocorreu
 há menos de 20 horas, inclusive na passagem da meia-noite. Registros não podem
 ser alterados pelo usuário nesta versão.
 
-O RH filtra por período e colaborador e exporta CSV. O saldo compara as jornadas
+O RH filtra por período, setor e colaborador e exporta CSV. O saldo compara as jornadas
 concluídas com os minutos diários e dias de trabalho configurados. Não é um
 fechamento automático de folha: faltas em dias sem marcação, feriados, escalas,
 horas extras 50%/100% e ajustes retroativos ainda exigem implementação/conferência.
@@ -123,3 +123,19 @@ mensagens no WhatsApp. Reconhecimento facial e teste em Android físico pendente
 - Perfil verifica WhatsApp em um único fluxo, sem exigir enviar um código longo ao bot.
 
 O adaptador conserva identificadores e a derivação criptográfica anteriores para manter os registros legíveis. A marca apresentada aos usuários é Oluni. A variável de segredo anterior continua aceita por compatibilidade; não deve ser rotacionada durante a troca de marca.
+
+
+## Versão 2.2 — setores, presença e tarefas
+
+- **Colaboradores → Setores e convites**: crie o setor, escolha-o e copie o convite. O cadastro exibe o setor fixo. O servidor confere a assinatura do convite e ignora tentativas de trocar o setor pelo formulário. Arquivar um setor sem pessoas ativas também invalida seus convites.
+- **Editar ficha**: defina setor, função, método de ponto e permissão para criar pequenos checklists. A configuração individual prevalece sobre o padrão da empresa. Setores legados são vinculados automaticamente ao cadastro de setores.
+- Códigos por empresa: `0000` (administrador), `0001` a `9999`, depois `A0000` a `A9999`, `B0000` etc., até `Z9999`. Códigos antigos continuam como aliases no servidor. O totem possui botão para selecionar a letra.
+- O método padrão é escolhido no cadastro da empresa e em **Mais → Jornada e atendimento**. Há código/toque, QR, foto e checklist. QR e checklist contam uma presença por dia; jornada contabiliza entrada, intervalo e saída. A presença não produz saldo artificial de horas.
+- **Colaboradores → Imprimir QR**: selecione pessoas ou um setor inteiro, defina cópias e gere até 240 etiquetas por lote. A folha A4 reúne nome, código, setor e QR. Impressão funciona pelo navegador e pelo diálogo nativo do Android.
+- O QR é individual e assinado, sem senha. O colaborador conecta sua conta, escaneia sua etiqueta e confirma a presença com localização recente. Um QR de outro usuário ou empresa não é aceito. Etiquetas estáticas podem ser copiadas; o QR não é prova de identidade biométrica nem garantia de posição física. Localização vem do dispositivo, com precisão registrada.
+- No ponto por foto, a câmera registra uma imagem, salva privadamente e exige confirmação do ponto. O servidor vincula a comprovação ao dono e impede reutilizá-la em outra marcação.
+- Em **Checklists**, o RH atribui responsável, data, itens e quantidade exigida de fotos antes/depois (0 a 10 por etapa). O funcionário envia o antes, inicia o serviço, marca os itens, envia o depois e conclui. O servidor aplica essas etapas. Fotos ficam privadas e organizadas por tarefa, com horário de recebimento. O RH pode filtrar por setor, pessoa, situação e data.
+- Em **Jornada e atendimento** ou na ficha, o RH pode autorizar pequenas tarefas criadas pelo próprio funcionário. Ele só cria para si e não pode alterar uma tarefa já atribuída pelo RH.
+- A navegação móvel do colaborador tem Ponto, Tarefas, Documentos e Perfil na barra inferior.
+
+**Limites atuais:** biometria facial permanece indisponível até conectar um provedor com identificação e prova de vida; foto de comprovação não substitui isso. Câmera, GPS e impressão nativos ainda precisam de validação em aparelho físico. Um checklist é uma atribuição para uma data; recorrência automática ainda não existe. As regras de folha indicadas acima continuam pendentes.

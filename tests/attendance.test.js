@@ -16,7 +16,7 @@ async function fixture(t){
 }
 test('cadastro de colaborador exige convite válido e impede elevar privilégios',async t=>{
  const f=await fixture(t);
- assert.equal(f.employee.user.role,'employee');assert.match(f.employee.user.employeeCode,/^\d{6}$/);
+ assert.equal(f.employee.user.role,'employee');assert.equal(f.employee.user.employeeCode,'0001');assert.equal(f.admin.user.employeeCode,'0000');
  assert.equal((await f.request('/auth/register',person('no-link@example.com',{mode:'employee',companyCode:'A1B2C3D4E5'}))).status,400);
  assert.equal((await f.request('/public/access',{token:f.admin.links.invite+'a',kind:'invite'})).status,400);
  assert.equal((await f.request('/public/access',{token:f.admin.links.invite,kind:'totem'})).status,400);

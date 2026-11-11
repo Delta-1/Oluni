@@ -9,7 +9,7 @@ export class SupabaseStore {
  query(kind){return this.db.from('startsys_records').select('*').eq('company_id',this.root).eq('kind','moodcorp.v1.'+kind);}
  decode(row){return row?{...this.crypt.open(row.data.value),id:row.id}:null;}
  async get(kind,id,tenant){let q=this.query(kind).eq('id',id);if(tenant)q=q.eq('data->>tenant',tenant);const {data,error}=await q.maybeSingle();if(error)throw fail(503,'Não foi possível consultar os dados.');return this.decode(data);}
- async list(kind,tenant,{owner,limit=10000}={}){let out=[];for(let start=0;start<limit;start+=1000){let q=this.query(kind).order('updated_at',{ascending:false}).order('id').range(start,Math.min(start+999,limit-1));if(tenant)q=q.eq('data->>tenant',tenant);if(owner)q=q.eq('data->>owner',owner);const {data,error}=await q;if(error)throw fail(503,'Não foi possível carregar os dados.');out.push(...data.map(r=>this.decode(r)));if(data.length<1000)break;}return out;}
+ async list(kind,tenant,{owner,limit}={}){limit??=kind==='user'?300000:10000;let out=[];for(let start=0;start<limit;start+=1000){let q=this.query(kind).order('updated_at',{ascending:false}).order('id').range(start,Math.min(start+999,limit-1));if(tenant)q=q.eq('data->>tenant',tenant);if(owner)q=q.eq('data->>owner',owner);const {data,error}=await q;if(error)throw fail(503,'Não foi possível carregar os dados.');out.push(...data.map(r=>this.decode(r)));if(data.length<1000)break;}return out;}
  async put(kind,tenant,value,id=value.id||'moodcorp:'+randomUUID(),insert=false){const row={id,company_id:this.root,kind:'moodcorp.v1.'+kind,data:{tenant,...(value.owner?{owner:value.owner}:{}),value:this.crypt.seal({...value,id})},updated_at:new Date().toISOString()};const q=this.db.from('startsys_records');const {error}=insert?await q.insert(row):await q.upsert(row,{onConflict:'id'});if(error)throw fail(error.code==='23505'?409:503,error.code==='23505'?'Este registro já existe.':'Não foi possível salvar. Tente novamente.');return {...value,id};}
  async remove(kind,id,tenant){let q=this.db.from('startsys_records').delete().eq('company_id',this.root).eq('kind','moodcorp.v1.'+kind).eq('id',id);if(tenant)q=q.eq('data->>tenant',tenant);const {error}=await q;if(error)throw fail(503,'Não foi possível remover o registro.');}
  async health(){const {error}=await this.query('company').limit(1);return !error;}
@@ -25,7 +25,7 @@ export class MemoryStore {
  constructor(){this.rows=new Map();}
  async init(){} async health(){return true;}
  async get(kind,id,tenant){const r=this.rows.get(kind+':'+id);return r&&(!tenant||r.tenant===tenant)?structuredClone(r.value):null;}
- async list(kind,tenant,{owner,limit=10000}={}){return [...this.rows.values()].filter(r=>r.kind===kind&&(!tenant||r.tenant===tenant)&&(!owner||r.value.owner===owner)).map(r=>structuredClone(r.value)).slice(-limit).reverse();}
+ async list(kind,tenant,{owner,limit}={}){limit??=kind==='user'?300000:10000;return [...this.rows.values()].filter(r=>r.kind===kind&&(!tenant||r.tenant===tenant)&&(!owner||r.value.owner===owner)).map(r=>structuredClone(r.value)).slice(-limit).reverse();}
  async put(kind,tenant,value,id=value.id||'moodcorp:'+randomUUID(),insert=false){if(insert&&this.rows.has(kind+':'+id))throw fail(409,'Este registro já existe.');this.rows.set(kind+':'+id,{kind,tenant,value:structuredClone({...value,id})});return {...value,id};}
  async remove(kind,id,tenant){if(await this.get(kind,id,tenant))this.rows.delete(kind+':'+id);}
 }

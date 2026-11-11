@@ -1,9 +1,11 @@
 import {createHmac, randomInt, timingSafeEqual} from 'node:crypto';
 import {fail, lookup, digest, text, publicUser, hashPassword, token} from './security.js';
+import {allocateEmployeeCode,methodFor,validMethod} from './workforce-policy.js';
+import {installWorkforce} from './workforce.js';
 
 // Keep the same event order as Oluni/mobile/src/clock-flow.ts.
 export const events = ['entry', 'break_start', 'break_end', 'exit'];
-export const eventLabels = {entry:'Entrada', break_start:'Início do intervalo', break_end:'Fim do intervalo', exit:'Saída'};
+export const eventLabels = {presence:'Presença',entry:'Entrada', break_start:'Início do intervalo', break_end:'Fim do intervalo', exit:'Saída'};
 const queues = new Map();
 export async function serial(key, fn) {
   const next = (queues.get(key) || Promise.resolve()).catch(() => {}).then(fn);
@@ -17,11 +19,11 @@ export function companySettings(c) {
   return {timezone:c.timezone || 'America/Rio_Branco', dailyMinutes:c.dailyMinutes ?? 480,
     greeting:c.greeting || 'Olá! Você está no atendimento da empresa.',
     menu:c.menu || 'Como posso ajudar?\n1 — Meu ponto\n2 — Enviar atestado\n3 — Falar com o RH\n4 — Conversar com a assistente',
-    weekdays:c.weekdays || [1,2,3,4,5], inviteVersion:c.inviteVersion || 1, totemVersion:c.totemVersion || 1};
+    weekdays:c.weekdays || [1,2,3,4,5], inviteVersion:c.inviteVersion || 1, totemVersion:c.totemVersion || 1, attendanceMethod:c.attendanceMethod||'code', locationRequired:c.locationRequired===true, attendanceMode:c.attendanceMode||'journey', allowOwnTasks:c.allowOwnTasks===true};
 }
-export function accessToken(secret, company, kind) {
+export function accessToken(secret, company, kind, departmentId=null) {
   const settings = companySettings(company);
-  const payload = Buffer.from(JSON.stringify({cid:company.id, kind, v:kind==='invite'?settings.inviteVersion:settings.totemVersion, exp:Date.now()+180*86400000})).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({cid:company.id, kind, ...(kind==='invite'&&departmentId?{did:departmentId}:{}), v:kind==='invite'?settings.inviteVersion:settings.totemVersion, exp:Date.now()+180*86400000})).toString('base64url');
   return payload+'.'+createHmac('sha256',secret).update('pontonorte:'+payload).digest('base64url');
 }
 export async function resolveAccess(store,secret,raw,kind) {
@@ -34,25 +36,10 @@ export async function resolveAccess(store,secret,raw,kind) {
   if (data.kind!==kind || !Number.isFinite(data.exp) || data.exp<Date.now()) throw fail(400,'Este link expirou. Peça outro ao RH.');
   const company=await store.get('company',data.cid,data.cid);
   if (!company || data.v!==(kind==='invite'?companySettings(company).inviteVersion:companySettings(company).totemVersion)) throw fail(400,'Este link foi desativado. Peça outro ao RH.');
+  if(kind==='invite'&&data.did){const d=await store.get('department',data.did,company.id);if(!d||d.active===false)throw fail(400,'O setor deste convite não está disponível. Peça um novo link ao RH.');return {...company,invitedDepartment:{id:d.id,name:d.name}};}
   return company;
 }
-export async function ensureEmployeeCode(store,secret,user) {
-  if (user.employeeCode) return user;
-  return serial('code:'+user.id, async()=>{
-    const fresh=await store.get('user',user.id,user.companyId)||user;
-    if(fresh.employeeCode)return fresh;
-    for(let tries=0;tries<12;tries++) {
-      const code=String(randomInt(100000,1000000)), id=lookup(secret,'employee-code',user.companyId,code);
-      try { await store.put('employee-code',user.companyId,{owner:user.id},id,true); }
-      catch(e) { if(e.status===409)continue; throw e; }
-      fresh.employeeCode=code;
-      try { await store.put('user',user.companyId,fresh,user.id); }
-      catch(e) { await store.remove('employee-code',id,user.companyId); throw e; }
-      return fresh;
-    }
-    throw fail(503,'Não foi possível gerar seu código. Tente novamente.');
-  });
-}
+export async function ensureEmployeeCode(store,secret,user) { return allocateEmployeeCode(store,secret,user,serial); }
 export function summarize(entries,company,from,to,users=[]) {
   const settings=companySettings(company), grouped=new Map();
   for(const e of entries) {
@@ -68,11 +55,11 @@ export function summarize(entries,company,from,to,users=[]) {
       const a=row.entries.find(e=>e.event===start), b=row.entries.find(e=>e.event===end);
       if(a&&b)seconds+=Math.max(0,(Date.parse(b.at)-Date.parse(a.at))/1000);
     }
-    const complete=row.entries.length===4, workedMinutes=Math.floor(seconds/60);
+    const presence=row.entries.some(e=>e.event==='presence'),complete=presence||row.entries.length===4, workedMinutes=Math.floor(seconds/60);
     const weekday=new Date(row.day+'T12:00:00Z').getUTCDay(), expected=settings.weekdays.includes(weekday)?settings.dailyMinutes:0;
     const user=users.find(u=>u.id===row.owner);
-    return {...row,name:user?.name||'',department:user?.department||'',workedMinutes,complete,
-      expectedMinutes:expected,balanceMinutes:complete?workedMinutes-expected:null};
+    return {...row,name:user?.name||'',department:user?.department||'',departmentId:user?.departmentId||null,employeeCode:user?.employeeCode||'',workedMinutes,complete,presence,
+      expectedMinutes:expected,balanceMinutes:complete&&!presence?workedMinutes-expected:null};
   }).sort((a,b)=>b.day.localeCompare(a.day)||a.name.localeCompare(b.name));
 }
 export function installAttendance({route,store,secret,admin,companyFor,gateway,reply}) {
@@ -81,11 +68,11 @@ export function installAttendance({route,store,secret,admin,companyFor,gateway,r
     const c=await companyFor(user.companyId), today=localDay(new Date(),companySettings(c).timezone);
     const all=(await store.list('clock-event',user.companyId,{owner:user.id,limit:3000})).sort((a,b)=>a.at.localeCompare(b.at));
     const recent=all.at(-1);
-    const ongoing=recent&&recent.event!=='exit'&&Date.now()-Date.parse(recent.at)<20*3600000;
+    const ongoing=recent&&!['exit','presence'].includes(recent.event)&&Date.now()-Date.parse(recent.at)<20*3600000;
     const shiftDay=ongoing?recent.day:today;
     const current=all.filter(e=>e.day===shiftDay), userWithCode=await forUser(user);
-    return {user:publicUser(userWithCode),today,shiftDay,entries:current,nextEvent:events[current.length]||null,
-      history:summarize(all,c,'1900-01-01','2999-12-31'),settings:companySettings(c)};
+    return {user:publicUser(userWithCode),today,shiftDay,entries:current,nextEvent:(['qr','checklist'].includes(methodFor(userWithCode,c))||c.attendanceMode==='presence')?(current.length?null:'presence'):(events[current.length]||null),
+      history:summarize(all,c,'1900-01-01','2999-12-31'),settings:companySettings(c),method:methodFor(userWithCode,c),presenceOnly:['qr','checklist'].includes(methodFor(userWithCode,c))||c.attendanceMode==='presence'};
   };
   const punch=async(user,body,source='online')=>serial('punch:'+user.id,async()=>{
     const requestId=text(body.requestId,16,100);
@@ -97,18 +84,20 @@ export function installAttendance({route,store,secret,admin,companyFor,gateway,r
     if(body.event!==state.nextEvent)throw fail(409,'Seu ponto mudou. Atualize a tela antes de registrar.');
     const last=state.entries.at(-1);
     if(last&&Date.now()-Date.parse(last.at)<30000)throw fail(409,'Ponto já registrado. Aguarde 30 segundos antes do próximo.');
-    const entry={owner:user.id,day:state.shiftDay,event:state.nextEvent,at:new Date().toISOString(),source,requestId};
-    if(body.location&&Number.isFinite(body.location.lat)&&Number.isFinite(body.location.lng)&&Math.abs(body.location.lat)<=90&&Math.abs(body.location.lng)<=180)entry.location={lat:body.location.lat,lng:body.location.lng};
+    const c=await companyFor(user.companyId),proof=await workforce.validatePunch(user,c,body,source);
+    const entry={...proof,departmentId:user.departmentId||null,department:user.department||'Geral',owner:user.id,day:state.shiftDay,event:state.nextEvent,at:new Date().toISOString(),source,requestId};
     // A fixed slot is also a database-level guard against simultaneous requests.
     const id=lookup(secret,'clock-event',user.companyId,user.id,state.shiftDay,state.entries.length);
     await store.put('clock-event',user.companyId,entry,id,true);
     return {entry:{...entry,id},...await mine(user)};
   });
+  const workforce=installWorkforce({route,store,secret,admin,companyFor,serial,forUser});
   route('get','/attendance/mine',async(req,res)=>res.json(await mine(req.user)));
   route('post','/attendance/punch',async(req,res)=>res.status(201).json(await punch(req.user,req.body)));
   route('get','/admin/access',admin,async(req,res)=>{
     const c=await companyFor(req.user.companyId);
-    res.json({invite:accessToken(secret,c,'invite'),totem:accessToken(secret,c,'totem')});
+    const departmentId=String(req.query.departmentId||'');if(departmentId){const d=await store.get('department',departmentId,c.id);if(!d||d.active===false)throw fail(400,'Escolha um setor ativo.');}
+    res.json({invite:accessToken(secret,c,'invite',departmentId||null),totem:accessToken(secret,c,'totem'),departmentId:departmentId||null});
   });
   route('post','/admin/access/revoke',admin,async(req,res)=>{
     if(!['invite','totem'].includes(req.body.kind))throw fail(400,'Escolha o link que deseja renovar.');
@@ -119,14 +108,15 @@ export function installAttendance({route,store,secret,admin,companyFor,gateway,r
     const c=await companyFor(req.user.companyId),today=localDay(new Date(),companySettings(c).timezone);
     const from=String(req.query.from||today.slice(0,8)+'01'),to=String(req.query.to||today);
     if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from>to)throw fail(400,'Confira o período do relatório.');
-    const users=await store.list('user',c.id);const employees=[];
+    const users=(await store.list('user',c.id)).sort((a,b)=>(a.createdAt||'').localeCompare(b.createdAt||'')||a.id.localeCompare(b.id));const employees=[];
     for(const u of users)employees.push(publicUser(await forUser(u)));
     const entries=await store.list('clock-event',c.id,{limit:50000});
-    const records=summarize(entries,c,from,to,users);
+    const departmentId=String(req.query.departmentId||''),records=summarize(entries,c,from,to,employees).filter(r=>!departmentId||r.departmentId===departmentId);
+    const departments=await workforce.sectors(c.id);
     const todayEntries=entries.filter(e=>e.day===today);
     const active=users.filter(u=>u.active&&u.role==='employee');
     const present=new Set(todayEntries.map(e=>e.owner));
-    res.json({today,employees,records,stats:{employees:active.length,present:active.filter(u=>present.has(u.id)).length,
+    res.json({today,employees,records,departments,stats:{employees:active.length,present:active.filter(u=>present.has(u.id)).length,
       pending:active.filter(u=>!present.has(u.id)).length,documents:(await store.list('document',c.id)).filter(d=>d.status==='pending').length},settings:companySettings(c)});
   });
   route('get','/admin/attendance/settings',admin,async(req,res)=>res.json(companySettings(await companyFor(req.user.companyId))));
@@ -136,7 +126,8 @@ export function installAttendance({route,store,secret,admin,companyFor,gateway,r
     const minutes=Number(b.dailyMinutes);
     if(!Number.isInteger(minutes)||minutes<1||minutes>960)throw fail(400,'Confira os minutos da jornada diária.');
     if(!Array.isArray(b.weekdays)||!b.weekdays.length||b.weekdays.some(d=>!Number.isInteger(d)||d<0||d>6))throw fail(400,'Escolha os dias de trabalho.');
-    Object.assign(c,{timezone:b.timezone,dailyMinutes:minutes,weekdays:[...new Set(b.weekdays)],greeting:text(b.greeting,1,1000),menu:text(b.menu,1,2000)});
+    const attendanceMethod=validMethod(b.attendanceMethod||c.attendanceMethod||'code');if(b.attendanceMode&&!['journey','presence'].includes(b.attendanceMode))throw fail(400,'Escolha jornada ou presença.');
+    Object.assign(c,{attendanceMethod,locationRequired:b.locationRequired===true,allowOwnTasks:b.allowOwnTasks===true,attendanceMode:b.attendanceMode||c.attendanceMode||'journey',timezone:b.timezone,dailyMinutes:minutes,weekdays:[...new Set(b.weekdays)],greeting:text(b.greeting,1,1000),menu:text(b.menu,1,2000)});
     await store.put('company',c.id,c,c.id);res.json(companySettings(c));
   });
   const safeDocument=d=>({id:d.id,owner:d.owner,name:d.name,mime:d.mime,size:d.size,at:d.at,status:d.status,source:d.source,note:d.note||''});
@@ -189,11 +180,11 @@ export function installAttendance({route,store,secret,admin,companyFor,gateway,r
 export function installPublicAttendance({route,store,secret,gateway,limiter,companyFor,getAttendance}) {
   route('post','/public/access',limiter(30,60000),async(req,res)=>{
     const kind=req.body.kind==='totem'?'totem':'invite',c=await resolveAccess(store,secret,req.body.token,kind);
-    res.json({name:c.name,timezone:companySettings(c).timezone});
+    res.json({name:c.name,timezone:companySettings(c).timezone,department:c.invitedDepartment||null,attendanceMethod:c.attendanceMethod||'code'});
   });
   route('post','/public/totem/punch',limiter(20,60000),async(req,res)=>{
-    const c=await resolveAccess(store,secret,req.body.token,'totem'),code=String(req.body.code||'');
-    if(!/^\d{6}$/.test(code))throw fail(400,'Digite seu código de 6 números.');
+    const c=await resolveAccess(store,secret,req.body.token,'totem'),code=String(req.body.code||'').trim().toUpperCase();
+    if(!/^(?:[A-Z]?\d{4}|\d{6})$/.test(code))throw fail(400,'Digite os 4 números do seu código e a letra, se houver.');
     const item=await store.get('employee-code',lookup(secret,'employee-code',c.id,code),c.id);
     const user=item&&await store.get('user',item.owner,c.id);
     if(!user?.active)throw fail(400,'Código não encontrado. Confira com o RH.');

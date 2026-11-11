@@ -12,7 +12,7 @@ Ponto, equipe e atendimento em um só lugar.
 1. Abra o aplicativo e toque em **Começar agora** para cadastrar a empresa e seu acesso de RH.
 2. Copie o convite na tela **Hoje** e envie aos colaboradores.
 3. Cada pessoa cadastra seu próprio acesso pelo convite; depois entra apenas com e-mail e senha.
-4. Abra o **Totem** em um aparelho na empresa. O colaborador usa seu código de seis números e o teclado da tela.
+4. Abra o **Totem** em um aparelho na empresa. O colaborador usa seu código de quatro números (0000 para o administrador, 0001 para o primeiro colaborador) e o teclado da tela.
 5. Em **WhatsApp**, conecte o número da empresa pelo QR. No perfil, cada pessoa verifica o próprio telefone.
 
 ## Recursos
@@ -61,3 +61,6 @@ O fluxo `.github/workflows/build-android.yml` compila o APK. A identidade é `br
 O reconhecimento facial não está implementado. O saldo exibido compara jornadas concluídas com a carga diária configurada; feriados, escalas, ajustes e adicionais de folha exigem conferência do RH. Entrega real no WhatsApp requer um número conectado pelo responsável.
 
 Veja [o guia completo](docs/OLUNI.md) para operação, infraestrutura e validação.
+
+
+Na versão 2.2, o RH cria setores, gera convites com setor predefinido, escolhe método de ponto por empresa ou colaborador, imprime QR Codes em lote e atribui checklists com fotos de antes/depois. Veja o fluxo completo e os limites atuais em [docs/OLUNI.md](docs/OLUNI.md).

@@ -8,6 +8,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(DeviceAuthPlugin.class);
         registerPlugin(AppUpdatesPlugin.class);
+        registerPlugin(OluniPrintPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }
