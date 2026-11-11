@@ -120,7 +120,7 @@ jobs:
             gh release view android-preview >/dev/null 2>&1 || gh release create android-preview --prerelease --target "$GITHUB_SHA" --title "Oluni — teste do aplicativo" --notes-file release-notes.txt
             gh release edit android-preview --title "Oluni — aplicativo de teste" --notes-file release-notes.txt
             gh release upload android-preview Oluni-Teste.apk --clobber
-            if gh release view android-preview --json assets --jq '.assets[].name' | rg -q '^PontoNorte-Teste\.apk$'; then
+            if [[ "$(gh release view android-preview --json assets --jq '[.assets[] | select(.name == "PontoNorte-Teste.apk")] | length')" != "0" ]]; then
               gh release delete-asset android-preview PontoNorte-Teste.apk --yes
             fi
           fi
