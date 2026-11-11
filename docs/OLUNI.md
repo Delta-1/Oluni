@@ -1,3 +1,18 @@
+# Atualização 2.5.1
+
+O aplicativo e o download usam apenas **Oluni**, com arquivo `Oluni.apk`.
+O cadastro e as redefinições de senha aceitam de **6 a 200 caracteres**.
+A identidade Android continua `br.com.oluni.app`; o canal com assinatura
+permanente mantém suas verificações de atualização.
+
+A manutenção completa é executada apenas com uma solicitação explícita e
+única (`OLUNI_RESET_DATA_ONCE`), antes de abrir o servidor e reconectar o
+WhatsApp. Remove registros, contas, empresas, documentos, mensagens,
+configurações e sessões somente do carrier do Oluni e do prefixo
+`moodcorp.v1.`. Preserva as tabelas e os dados dos outros aplicativos. Uma
+marca técnica impede a repetição da mesma solicitação; não existe endpoint
+público para disparar a limpeza. A flag é esvaziada após a verificação.
+
 # Oluni integrado
 
 **WhatsApp atualizado na versão 2.5:** consulte [o guia atual de atendimento, visitantes, atestados e convites programados](WHATSAPP.md). As descrições de WhatsApp nas versões anteriores abaixo são históricas.

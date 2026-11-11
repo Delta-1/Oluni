@@ -13,6 +13,21 @@ export class SupabaseStore {
  async put(kind,tenant,value,id=value.id||'moodcorp:'+randomUUID(),insert=false){const row={id,company_id:this.root,kind:'moodcorp.v1.'+kind,data:{tenant,...(value.owner?{owner:value.owner}:{}),value:this.crypt.seal({...value,id})},updated_at:new Date().toISOString()};const q=this.db.from('startsys_records');const {error}=insert?await q.insert(row):await q.upsert(row,{onConflict:'id'});if(error)throw fail(error.code==='23505'?409:503,error.code==='23505'?'Este registro já existe.':'Não foi possível salvar. Tente novamente.');return {...value,id};}
  async remove(kind,id,tenant){let q=this.db.from('startsys_records').delete().eq('company_id',this.root).eq('kind','moodcorp.v1.'+kind).eq('id',id);if(tenant)q=q.eq('data->>tenant',tenant);const {error}=await q;if(error)throw fail(503,'Não foi possível remover o registro.');}
  async health(){const {error}=await this.query('company').limit(1);return !error;}
+ async projectDataCounts(){
+  const kinds=[null,'user','company','session'];
+  const counts=await Promise.all(kinds.map(async kind=>{let q=this.db.from('startsys_records').select('id',{count:'exact',head:true}).eq('company_id',this.root);q=kind?q.eq('kind','moodcorp.v1.'+kind):q.like('kind','moodcorp.v1.%');const {count,error}=await q;if(error||!Number.isSafeInteger(count))throw fail(503,'Não foi possível verificar a limpeza.');return count;}));
+  return {records:counts[0],accounts:counts[1],companies:counts[2],sessions:counts[3]};
+ }
+ async resetProjectData(){
+  if(!this.root)throw fail(503,'Armazenamento do Oluni não inicializado.');
+  const before=await this.projectDataCounts();
+  // Both predicates are required: this carrier also lives in a shared database.
+  const {count,error}=await this.db.from('startsys_records').delete({count:'exact'}).eq('company_id',this.root).like('kind','moodcorp.v1.%');
+  if(error)throw fail(503,'Não foi possível limpar os dados do Oluni.');
+  const after=await this.projectDataCounts();
+  if(after.records!==0)throw fail(503,'A limpeza do Oluni não foi concluída.');
+  return {before,deleted:count||0,after};
+ }
  async resetAccountKinds(kinds){
   const counts={};
   // Delete known account kinds inside this application's carrier only. Avoid

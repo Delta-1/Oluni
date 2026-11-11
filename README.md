@@ -5,7 +5,7 @@ Ponto, equipe e atendimento em um só lugar.
 - Aplicativo: https://oluni.up.railway.app
 - Interface no GitHub Pages: https://delta-1.github.io/Oluni/
 - Código: https://github.com/Delta-1/Oluni
-- Android de teste: https://github.com/Delta-1/Oluni/releases/download/android-preview/Oluni-Teste.apk
+- Android: https://github.com/Delta-1/Oluni/releases/download/android-preview/Oluni.apk
 
 ## Começar
 

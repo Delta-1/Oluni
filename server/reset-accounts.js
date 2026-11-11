@@ -1,5 +1,17 @@
 import {lookup} from './security.js';
 
+// Explicit one-time whole-app reset. The store enforces the carrier and kind
+// prefix, leaving every other application and the database schema untouched.
+export async function resetProjectDataOnce(store,secret,requestId) {
+  if(!requestId)return null;
+  const marker=lookup(secret,'maintenance','reset-project-data',requestId);
+  if(await store.get('maintenance',marker))return null;
+  if(!store.resetProjectData)throw Error('Limpeza completa indisponível neste armazenamento.');
+  const result=await store.resetProjectData();
+  await store.put('maintenance','system',{operation:'reset-project-data',requestId,result,at:new Date().toISOString()},marker,true);
+  return result;
+}
+
 // Only invoked by an explicit, one-time deployment flag. Retain the encrypted
 // namespace and historical content; remove accounts and their access paths.
 export async function resetAccountsOnce(store,secret,requestId) {

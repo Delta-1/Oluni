@@ -32,7 +32,7 @@ export function createApp({store,secret,gateway=null,ai=companion,whatsappAI,wel
  const settingsFor=cid=>store.get('settings',lookup(secret,'settings',cid),cid);
  const companyFor=async id=>{const c=await store.get('company',id,id);if(!c)throw fail(404,'Empresa não encontrada.');return c;};
  const issue=async(user,remember)=>{const raw=token(),id=lookup(secret,'session',digest(raw));await store.put('session',user.companyId,{userId:user.id,companyId:user.companyId,expiresAt:new Date(Date.now()+(remember?30*86400000:8*3600000)).toISOString()},id,true);return {token:raw,user:publicUser(user)};};
- route('get','/health',async(req,res)=>{const healthy=await store.health();res.status(healthy?200:503).json({service:'Oluni',version:'2.5.0',database:healthy});});
+ route('get','/health',async(req,res)=>{const healthy=await store.health();res.status(healthy?200:503).json({service:'Oluni',version:'2.5.1',database:healthy});});
  const badges=createBadgeService({route,store,secret,companyFor,forUser:u=>ensureEmployeeCode(store,secret,u),publicAppUrl,serial:attendanceSerial});
  let attendance;
  const verification=installPublicAttendance({route,store,secret,gateway,limiter,companyFor,getAttendance:()=>attendance});
