@@ -1,4 +1,4 @@
-package br.com.cpusis.pontonorte;
+package br.com.pontonorte.app;
 
 import java.net.URI;
 import java.util.Arrays;

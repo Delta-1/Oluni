@@ -1,6 +1,6 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 const config: CapacitorConfig = {
-  appId: "br.com.cpusis.pontonorte",
+  appId: "br.com.pontonorte.app",
   appName: "PontoNorte",
   webDir: "dist",
   android: { allowMixedContent: false },

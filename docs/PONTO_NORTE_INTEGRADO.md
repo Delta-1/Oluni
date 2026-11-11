@@ -79,7 +79,7 @@ sem URL pública. Funcionário consulta seus arquivos; RH consulta os da empresa
 ## Android e atualizações
 
 O diretório `mobile` contém o aplicativo nativo reaproveitado do Ponto Norte,
-com os mesmos identificadores Android e a mesma interface do site. O build
+com identidade Android própria (`br.com.pontonorte.app`) e a mesma interface do site. O build
 consome a API do Railway. O GitHub Actions gera e publica automaticamente o APK
 quando a interface ou o aplicativo muda.
 
@@ -90,7 +90,7 @@ quando a interface ou o aplicativo muda.
   `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` e `ANDROID_KEY_PASSWORD`.
 - Sem assinatura permanente, publica-se somente APK de teste. O Android exige
   confirmação para instalar atualizações; a instalação não é silenciosa.
-- Um APK antigo só aceita atualização direta se o certificado for o mesmo.
+- APKs de versões anteriores com outro identificador Android exigem uma nova instalação. Atualizações deste aplicativo verificam o mesmo identificador e certificado.
 
 ## Limpeza autorizada de contas
 

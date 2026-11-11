@@ -1,10 +1,10 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace = "br.com.cpusis.pontonorte"
+    namespace = "br.com.pontonorte.app"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "br.com.cpusis.pontonorte"
+        applicationId "br.com.pontonorte.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode = Integer.parseInt(System.getenv("PN_VERSION_CODE") ?: "3")

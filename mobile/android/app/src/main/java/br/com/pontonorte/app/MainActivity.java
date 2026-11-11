@@ -1,4 +1,4 @@
-package br.com.cpusis.pontonorte;
+package br.com.pontonorte.app;
 
 import android.os.Bundle;
 import com.getcapacitor.BridgeActivity;

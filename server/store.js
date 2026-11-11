@@ -13,6 +13,13 @@ export class SupabaseStore {
  async put(kind,tenant,value,id=value.id||'moodcorp:'+randomUUID(),insert=false){const row={id,company_id:this.root,kind:'moodcorp.v1.'+kind,data:{tenant,...(value.owner?{owner:value.owner}:{}),value:this.crypt.seal({...value,id})},updated_at:new Date().toISOString()};const q=this.db.from('startsys_records');const {error}=insert?await q.insert(row):await q.upsert(row,{onConflict:'id'});if(error)throw fail(error.code==='23505'?409:503,error.code==='23505'?'Este registro já existe.':'Não foi possível salvar. Tente novamente.');return {...value,id};}
  async remove(kind,id,tenant){let q=this.db.from('startsys_records').delete().eq('company_id',this.root).eq('kind','moodcorp.v1.'+kind).eq('id',id);if(tenant)q=q.eq('data->>tenant',tenant);const {error}=await q;if(error)throw fail(503,'Não foi possível remover o registro.');}
  async health(){const {error}=await this.query('company').limit(1);return !error;}
+ async resetAccountKinds(kinds){
+  const counts={};
+  // Delete known account kinds inside this application's carrier only. Avoid
+  // decrypting thousands of authentication records or one network call per row.
+  for(const kind of kinds){const {error,count}=await this.db.from('startsys_records').delete({count:'exact'}).eq('company_id',this.root).eq('kind','moodcorp.v1.'+kind);if(error)throw fail(503,'Não foi possível concluir a limpeza autorizada.');counts[kind]=count||0;console.log('Ponto Norte: limpeza de acessos',kind,counts[kind]);}
+  return counts;
+ }
 }
 export class MemoryStore {
  constructor(){this.rows=new Map();}

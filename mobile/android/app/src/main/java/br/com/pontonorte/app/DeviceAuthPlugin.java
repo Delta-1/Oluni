@@ -1,4 +1,4 @@
-package br.com.cpusis.pontonorte;
+package br.com.pontonorte.app;
 
 import android.app.KeyguardManager;
 import android.content.Context;
