@@ -54,7 +54,7 @@ export function installWorkforce({route,store,secret,admin,companyFor,serial,for
   route('post','/media',async(req,res)=>serial('media:'+req.user.id,async()=>{
     const b=req.body,u=req.user,purpose=b.purpose;
     if(!['clock','task'].includes(purpose)||!['image/jpeg','image/png'].includes(b.mime)||typeof b.data!=='string'||b.data.length>4300000)throw fail(400,'Envie uma foto JPG ou PNG de até 3 MB.');
-    let task;if(purpose==='task'){task=await owned('task',b.taskId,u);if(task.owner!==u.id)throw fail(403,'Somente o responsável pode enviar fotos.');if(task.status==='completed')throw fail(409,'Esta tarefa já foi concluída.');if(!['before','after'].includes(b.phase))throw fail(400,'Escolha antes ou depois.');if(b.phase==='after'&&task.status!=='in_progress')throw fail(409,'Inicie a tarefa e envie as fotos de antes primeiro.');}
+    let task;if(purpose==='task'){task=await owned('task',b.taskId,u);if(task.owner!==u.id)throw fail(403,'Somente o responsável pode enviar fotos.');if(['completed','cancelled'].includes(task.status))throw fail(409,'Esta tarefa já foi encerrada.');if(!['before','after'].includes(b.phase))throw fail(400,'Escolha antes ou depois.');if(b.phase==='after'&&task.status!=='in_progress')throw fail(409,'Inicie a tarefa e envie as fotos de antes primeiro.');}
     const buf=Buffer.from(b.data,'base64'),png=buf.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])),jpg=buf[0]===255&&buf[1]===216&&buf[2]===255;
     if(!buf.length||buf.length>3*1024*1024||!(b.mime==='image/png'?png:jpg))throw fail(400,'Foto inválida. Use JPG ou PNG de até 3 MB.');
     const hash=digest(buf.toString('base64')),id=lookup(secret,'proof',u.companyId,u.id,purpose,task?.id||'',b.phase||'',hash),old=await store.get('proof',id,u.companyId);if(old)return res.json(mediaSafe(old));
@@ -92,7 +92,7 @@ export function installWorkforce({route,store,secret,admin,companyFor,serial,for
   route('patch','/tasks/:id',async(req,res)=>serial('task:'+req.params.id,async()=>{
     const u=req.user,t=await owned('task',req.params.id,u),b=req.body;
     if(t.owner!==u.id)throw fail(403,'Somente o responsável pode atualizar o checklist.');
-    if(t.status==='completed')throw fail(409,'Esta tarefa já foi concluída.');
+    if(['completed','cancelled'].includes(t.status))throw fail(409,'Esta tarefa já foi encerrada.');
     const photos=(await store.list('proof',u.companyId,{owner:u.id,limit:2000})).filter(p=>p.taskId===t.id);
     const before=photos.filter(p=>p.phase==='before'),after=photos.filter(p=>p.phase==='after');
     if(b.action==='start'){if(before.length<t.requiredBefore)throw fail(400,`Envie ${t.requiredBefore} foto(s) de antes para iniciar.`);if(t.status==='pending'){t.status='in_progress';t.startedAt=new Date().toISOString();}}
