@@ -13,5 +13,5 @@ console.log('Oluni: armazenamento conectado.');
 const reset=await resetAccountsOnce(store,secret,process.env.PONTONORTE_RESET_ACCOUNTS_ONCE);
 if(reset)console.log('Oluni: limpeza autorizada de contas concluída.',JSON.stringify(reset));
 const gateway=new WhatsAppGateway(store,secret),app=createApp({store,secret,gateway,staticPath:fileURLToPath(new URL('../dist',import.meta.url))});
-const server=app.listen(Number(process.env.PORT||8080),'0.0.0.0',()=>{console.log('Oluni pronto.');gateway.restore().catch(()=>console.error('Reconexão do WhatsApp pendente.'));});
-for(const signal of ['SIGTERM','SIGINT'])process.on(signal,async()=>{await gateway.close();server.close(()=>process.exit(0));setTimeout(()=>process.exit(0),5000).unref();});
+const server=app.listen(Number(process.env.PORT||8080),'0.0.0.0',()=>{console.log('Oluni pronto.');app.locals.whatsappHub.wellbeing.start();gateway.restore().catch(()=>console.error('Reconexão do WhatsApp pendente.'));});
+for(const signal of ['SIGTERM','SIGINT'])process.on(signal,async()=>{app.locals.whatsappHub.wellbeing.close();await gateway.close();server.close(()=>process.exit(0));setTimeout(()=>process.exit(0),5000).unref();});

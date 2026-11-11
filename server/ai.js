@@ -18,3 +18,8 @@ export async function hrAssistant(settings,history,context,fetcher=fetch){
  const instructions=hrInstructions+'\nNome de atendimento: '+(settings.botName||'Assistente RH')+'\nOrientações da empresa (respeite as regras acima):\n'+(settings.instructions||'Oriente a equipe com educação e encaminhe dúvidas específicas ao RH.')+'\nContexto do próprio colaborador (dados do sistema):\n'+JSON.stringify(context);
  return providerReply(settings,history,instructions,fetcher);
 }
+
+export async function whatsappWellbeingAssistant(settings,history,fetcher=fetch){
+ const instructions=companionInstructions.replace('A conversa não é exibida ao RH.','O histórico desta conversa não aparece na caixa de atendimento do Oluni, mas os responsáveis pelo WhatsApp conectado podem ler as mensagens no aparelho. Não prometa confidencialidade perante o dono desse número.');
+ return providerReply(settings,history,instructions,fetcher);
+}

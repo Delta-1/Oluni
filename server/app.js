@@ -2,6 +2,7 @@ import express from 'express';
 import {randomUUID,randomBytes} from 'node:crypto';
 import {fail,digest,token,lookup,day,text,profile,hashPassword,verifyPassword,limiter,publicUser,publicCompany} from './security.js';
 import {companion} from './ai.js';
+import {installWhatsAppInbox} from './whatsapp-inbox.js';
 import {installWhatsAppAI} from './whatsapp-ai.js';
 import {installAttendance,installPublicAttendance,resolveAccess,ensureEmployeeCode} from './attendance.js';
 import {validMethod} from './workforce-policy.js';
@@ -11,7 +12,7 @@ const wrap=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
 const validCode=v=>String(v||'').replace(/[^a-z0-9]/gi,'').toUpperCase();
 const reportSafe=r=>({id:r.id,category:r.category,title:r.title,body:r.body,status:r.status,day:r.day,reply:r.reply||'',anonymous:true});
 const feedbackSafe=f=>({id:f.id,rating:f.rating,body:f.body,day:f.day,anonymous:f.anonymous,author:f.author||null});
-export function createApp({store,secret,gateway=null,ai=companion,whatsappAI,staticPath,publicAppUrl}){
+export function createApp({store,secret,gateway=null,ai=companion,whatsappAI,wellbeingAI,staticPath,publicAppUrl}){
  const app=express();app.disable('x-powered-by');app.set('trust proxy',1);
  app.use((req,res,next)=>{res.set({'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','Permissions-Policy':'camera=(self), microphone=(), geolocation=(self)','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"});if(req.path.startsWith('/api')){
   res.set('Cache-Control','no-store');
@@ -31,7 +32,7 @@ export function createApp({store,secret,gateway=null,ai=companion,whatsappAI,sta
  const settingsFor=cid=>store.get('settings',lookup(secret,'settings',cid),cid);
  const companyFor=async id=>{const c=await store.get('company',id,id);if(!c)throw fail(404,'Empresa não encontrada.');return c;};
  const issue=async(user,remember)=>{const raw=token(),id=lookup(secret,'session',digest(raw));await store.put('session',user.companyId,{userId:user.id,companyId:user.companyId,expiresAt:new Date(Date.now()+(remember?30*86400000:8*3600000)).toISOString()},id,true);return {token:raw,user:publicUser(user)};};
- route('get','/health',async(req,res)=>{const healthy=await store.health();res.status(healthy?200:503).json({service:'Oluni',version:'2.4.0',database:healthy});});
+ route('get','/health',async(req,res)=>{const healthy=await store.health();res.status(healthy?200:503).json({service:'Oluni',version:'2.5.0',database:healthy});});
  const badges=createBadgeService({route,store,secret,companyFor,forUser:u=>ensureEmployeeCode(store,secret,u),publicAppUrl,serial:attendanceSerial});
  let attendance;
  const verification=installPublicAttendance({route,store,secret,gateway,limiter,companyFor,getAttendance:()=>attendance});
@@ -48,11 +49,12 @@ export function createApp({store,secret,gateway=null,ai=companion,whatsappAI,sta
  app.use('/api',wrap(auth));
  badges.installAuthenticated(admin);
  const waAI=installWhatsAppAI({route,store,secret,admin,settingsFor,companyFor,ai:whatsappAI});
+ const hub=installWhatsAppInbox({route,store,secret,admin,gateway,configFor:waAI.configFor,wellbeingAI,saveDocument:(u,f)=>attendance.saveDocument(u,f,'whatsapp')});app.locals.whatsappHub=hub;
  route('post','/profile/whatsapp/request',async(req,res)=>{if(!gateway?.sendText||(await gateway.status(req.user.companyId)).status!=='connected')throw fail(409,'O RH precisa conectar o WhatsApp da empresa primeiro.');await verification.sendOTP('verify',req.user);res.json({ok:true});});
  route('post','/profile/whatsapp/verify',async(req,res)=>{await verification.consume('verify',req.user.email,req.body.code,async u=>{if((await store.list('user',u.companyId)).some(other=>other.id!==u.id&&other.whatsappJid===u.phone+'@s.whatsapp.net'))throw fail(409,'Este WhatsApp já está vinculado a outra conta. Procure o RH.');u.phoneVerified=true;u.whatsappConsent=true;u.whatsappJid=u.phone+'@s.whatsapp.net';await store.put('user',u.companyId,u,u.id);});res.json({ok:true});});
  route('post','/auth/logout',async(req,res)=>{await store.remove('session',req.sessionId,req.user.companyId);res.json({ok:true});});
  route('get','/bootstrap',async(req,res)=>{const u=await ensureEmployeeCode(store,secret,req.user),c=await companyFor(u.companyId);const own=await store.list('checkin',c.id,{owner:u.id,limit:400});const settings=await settingsFor(c.id);res.json({user:publicUser(u),company:publicCompany(c),checkins:own.sort((a,b)=>b.day.localeCompare(a.day)),aiAvailable:!!(settings?.enabled&&settings?.apiKey)});});
- route('patch','/profile',async(req,res)=>{const u={...req.user};for(const k of ['shareMood','aiConsent','whatsappConsent'])if(req.body[k]!==undefined)u[k]=req.body[k]===true;if(req.body.name)u.name=text(req.body.name,3,120);if(req.body.jobTitle)u.jobTitle=text(req.body.jobTitle,2,100);await store.put('user',u.companyId,u,u.id);res.json(publicUser(u));});
+ route('patch','/profile',async(req,res)=>{const u={...req.user};for(const k of ['shareMood','aiConsent','whatsappConsent','wellbeingWhatsappConsent'])if(req.body[k]!==undefined)u[k]=req.body[k]===true;if(req.body.name)u.name=text(req.body.name,3,120);if(req.body.jobTitle)u.jobTitle=text(req.body.jobTitle,2,100);await store.put('user',u.companyId,u,u.id);if(!u.whatsappConsent||!u.wellbeingWhatsappConsent||!u.aiConsent)await hub.wellbeing.stop(u.companyId,u.id);res.json(publicUser(u));});
  route('post','/auth/password',async(req,res)=>{const u=req.user;if(!await verifyPassword(req.body.currentPassword,u.passwordHash))throw fail(400,'Senha atual incorreta.');u.passwordHash=await hashPassword(req.body.password);await store.put('user',u.companyId,u,u.id);for(const s of await store.list('session',u.companyId))if(s.userId===u.id&&s.id!==req.sessionId)await store.remove('session',s.id,u.companyId);res.json({ok:true});});
  route('post','/checkins',limiter(20,60000),async(req,res)=>{const mood=Number(req.body.mood);if(!Number.isInteger(mood)||mood<1||mood>5)throw fail(400,'Escolha como você está se sentindo.');const u=req.user,when=day(),id=lookup(secret,'checkin',u.id,when);const entry={owner:u.id,day:when,mood,note:text(req.body.note||'',0,1500),shared:req.body.shared===true,source:'app',at:new Date().toISOString()};await store.put('checkin',u.companyId,entry,id);res.json({...entry,id});});
  route('post','/feedback',limiter(5,60000),async(req,res)=>{const rating=Number(req.body.rating);if(!Number.isInteger(rating)||rating<1||rating>5)throw fail(400,'Escolha uma avaliação de 1 a 5.');const anonymous=req.body.anonymous!==false;await store.put('feedback',req.user.companyId,{body:text(req.body.body,10,4000),rating,anonymous,day:day(),...(!anonymous?{author:req.user.name}:{})});res.status(201).json({ok:true});});
@@ -78,7 +80,7 @@ export function createApp({store,secret,gateway=null,ai=companion,whatsappAI,sta
  route('post','/admin/whatsapp/disconnect',admin,async(req,res)=>{if(!gateway)throw fail(503,'Integração indisponível.');await gateway.disconnect(req.user.companyId);res.json({ok:true});});
  route('post','/admin/whatsapp/reset-start',admin,async(req,res)=>{await gateway.resetStart(req.user.companyId);res.json({ok:true});});
  attendance=installAttendance({route,store,secret,admin,companyFor,gateway,reply});
- if(gateway)gateway.canReceiveFile=async(cid,jid)=>(await store.list('user',cid)).some(u=>u.active&&u.whatsappConsent&&u.whatsappJid===jid);
+ if(gateway)gateway.canReceiveFile=async(cid,jid)=>/^\d{6,20}@(s\.whatsapp\.net|lid)$/.test(jid);
  if(gateway)gateway.onMessage=async(cid,jid,message,attachment=null)=>{
   const users=await store.list('user',cid);
   let u=users.find(u=>u.active&&u.whatsappJid===jid&&u.whatsappConsent);
@@ -128,6 +130,14 @@ export function createApp({store,secret,gateway=null,ai=companion,whatsappAI,sta
   }
   return settings.greeting+'\n\n'+settings.menu;
  };
+
+
+ if(gateway){
+  const legacy=gateway.onMessage;
+  gateway.onMessage=(cid,jid,message,attachment=null,meta={})=>hub.receive(cid,jid,message,attachment,meta,legacy);
+  gateway.onOwnMessage=hub.own;gateway.onReplySent=hub.delivery;gateway.shouldSendReply=hub.canSendReply;
+  gateway.onStatus=async(cid,id,status)=>{for(const m of await store.list('wa-message',cid,{limit:5000}))if(m.providerId===id&&m.direction!=='in'){m.status=status>=4?'read':status>=3?'delivered':m.status;await store.put('wa-message',cid,m,m.id);}};
+ }
 
  if(staticPath){
   app.use(express.static(staticPath,{maxAge:0,index:'index.html',setHeaders(res,path){res.setHeader('Cache-Control',path.endsWith('.html')?'no-store, max-age=0':path.includes('/assets/')?'public, max-age=31536000, immutable':'no-cache');}}));

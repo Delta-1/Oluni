@@ -1,5 +1,7 @@
 # Oluni integrado
 
+**WhatsApp atualizado na versão 2.5:** consulte [o guia atual de atendimento, visitantes, atestados e convites programados](WHATSAPP.md). As descrições de WhatsApp nas versões anteriores abaixo são históricas.
+
 O Oluni reúne em um só aplicativo o registro de ponto e os módulos de feedback, relatos anônimos, bem-estar e IA.
 
 ## Infraestrutura utilizada

@@ -74,6 +74,7 @@ test('bot atende menu e recebe atestado sem IA, com identidade verificada',async
  const f=await fixture(t),u=await f.store.get('user',f.employee.user.id);u.whatsappJid=u.phone+'@s.whatsapp.net';u.whatsappConsent=true;await f.store.put('user',u.companyId,u,u.id);
  assert.match(await f.gateway.onMessage(u.companyId,u.whatsappJid,'MENU'),/Meu ponto/);
  assert.match(await f.gateway.onMessage(u.companyId,u.whatsappJid,'2'),/PDF/);
+ assert.match(await f.gateway.onMessage(u.companyId,u.whatsappJid,u.employeeCode),/Identificação confirmada/);
  const result=await f.gateway.onMessage(u.companyId,u.whatsappJid,'',{mime:'application/pdf',name:'exemplo.pdf',buffer:Buffer.from('%PDF-1.4\nexample')});assert.match(result,/Recebemos/);
  assert.equal((await f.store.list('document',u.companyId))[0].owner,u.id);
  assert.equal(await f.gateway.onMessage('other-company',u.whatsappJid,'MENU'),null);
