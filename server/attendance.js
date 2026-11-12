@@ -195,7 +195,7 @@ export function installPublicAttendance({route,store,secret,gateway,limiter,comp
   const otpId=(purpose,email)=>lookup(secret,'otp',purpose,email);
   const sendOTP=async(purpose,user)=>serial('otp:'+purpose+':'+user.email,async()=>{
     const id=otpId(purpose,user.email),old=await store.get('otp',id,user.companyId);
-    if(old&&Date.parse(old.expiresAt)>Date.now())return;
+    if(old&&old.phone===user.phone&&Date.parse(old.expiresAt)>Date.now())return;
     const connection=await connectionFor(user);if(!gateway?.sendText||(await gateway.status(connection)).status!=='connected')return;
     const code=String(randomInt(100000,1000000));
     const saved={owner:user.id,companyId:user.companyId,phone:user.phone,hash:lookup(secret,'otp-value',purpose,user.id,code),attempts:0,expiresAt:new Date(Date.now()+10*60000).toISOString()};
@@ -214,7 +214,7 @@ export function installPublicAttendance({route,store,secret,gateway,limiter,comp
   route('post','/auth/password/request',limiter(5,15*60000),async(req,res)=>{
     const email=String(req.body.email||'').trim().toLowerCase(),u=await store.get('user',lookup(secret,'email',email));
     if(u?.active)await sendOTP('reset',u);
-    res.json({ok:true,message:'Se o e-mail tiver um WhatsApp verificado e a empresa estiver conectada, enviaremos um código. Confira seu WhatsApp ou procure o RH.'});
+    res.json({ok:true,message:'Se o e-mail tiver um WhatsApp cadastrado e a empresa estiver conectada, enviaremos um código. Confira seu WhatsApp ou procure o RH.'});
   });
   route('post','/auth/password/reset',limiter(10,15*60000),async(req,res)=>{
     const passwordHash=await hashPassword(req.body.password),email=String(req.body.email||'').trim().toLowerCase();

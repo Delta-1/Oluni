@@ -44,3 +44,10 @@ Mais → Instalar aplicativo reabre QR, link e download. O site sempre carrega a
 ## Infraestrutura e validação
 
 A atualização preserva o armazenamento criptografado e o namespace existente do Oluni no Supabase compartilhado. Não inclui limpeza de dados, alteração de credenciais ou de outros sistemas. O Railway precisa de `RAILPACK_DEPLOY_APT_PACKAGES=ffmpeg` para gravar voz compatível. Testes locais usam banco em memória e gateway simulado; envio/recebimento real, QR e funções nativas do WhatsApp dependem de pareamento pelo responsável. Não são enviados testes para números reais.
+
+
+## Correção 3.0.1 · telefone e edição cadastral
+
+O telefone possui bandeira, código internacional editável e um campo próprio para o número nacional com DDD. Digitar 55 no código seleciona o Brasil; 591 seleciona a Bolívia. O nome do país aparece apenas ao abrir a lista pesquisável. O país inicial é sugerido pelo fuso horário/idioma do aparelho, sem GPS ou consulta externa; sempre é possível trocar. Na inscrição, repita o telefone para conferir a digitação, sem envio de código. O campo ocupa uma linha inteira e mantém espaço utilizável no celular.
+
+Em Perfil, a pessoa pode alterar nome, CPF, telefone, nascimento, endereço e função. O RH/administrador usa Colaboradores → Ficha para corrigir os mesmos dados e definir setor/método de ponto. CPF é opcional e tem validação dos dígitos. E-mail de acesso, código do colaborador e permissões não são alterados por essa edição. CPF/endereço não entram no QR público do crachá. Telefones e CPFs duplicados na mesma empresa são recusados ao corrigir uma ficha. Ao trocar o telefone, o vínculo antigo é removido e códigos de recuperação enviados ao número anterior deixam de funcionar.

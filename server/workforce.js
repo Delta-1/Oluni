@@ -1,3 +1,4 @@
+import {personalData} from './personal-data.js';
 import QRCode from 'qrcode';
 import {createHmac,timingSafeEqual} from 'node:crypto';
 import {fail,text,lookup,digest,publicUser} from './security.js';
@@ -20,15 +21,16 @@ export function installWorkforce({route,store,secret,admin,companyFor,serial,for
     if(req.body.active===false){const users=await store.list('user',req.user.companyId);if(users.some(u=>u.departmentId===row.id&&u.active))throw fail(409,'Mova os colaboradores deste setor antes de arquivá-lo.');row.active=false;}
     await store.put('department',req.user.companyId,row,row.id);res.json(row);
   });
-  route('patch','/admin/employee-config/:id',admin,async(req,res)=>{
-    const cid=req.user.companyId,u=await store.get('user',req.params.id,cid),b=req.body;
-    if(!u)throw fail(404,'Colaborador não encontrado.');
+  route('patch','/admin/employee-config/:id',admin,async(req,res)=>serial('user-edit:'+req.params.id,async()=>{
+    const cid=req.user.companyId,existing=await store.get('user',req.params.id,cid),b=req.body;
+    if(!existing)throw fail(404,'Colaborador não encontrado.');
+    const u=await personalData(store,existing,b);
     if(b.departmentId!==undefined){const d=b.departmentId?await store.get('department',b.departmentId,cid):null;if(b.departmentId&&(!d||d.active===false))throw fail(400,'Escolha um setor ativo desta empresa.');u.departmentId=d?.id||null;u.department=d?.name||'Geral';}
     if(b.attendanceMethod!==undefined)u.attendanceMethod=validMethod(b.attendanceMethod,true);
     if(b.allowOwnTasks!==undefined){if(b.allowOwnTasks===null)delete u.allowOwnTasks;else u.allowOwnTasks=b.allowOwnTasks===true;}
-    if(b.jobTitle!==undefined)u.jobTitle=text(b.jobTitle,2,100);
+    
     await store.put('user',cid,u,u.id);res.json(publicUser(await forUser(u)));
-  });
+  }));
 
   const qrToken=(company,user)=>{
     const data=Buffer.from(JSON.stringify({c:company.id,u:user.id,v:company.qrVersion||1})).toString('base64url');
