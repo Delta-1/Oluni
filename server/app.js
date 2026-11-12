@@ -1,3 +1,4 @@
+import {installBusinessReports} from './business-reports.js';
 import {personalData} from './personal-data.js';
 import express from 'express';
 import {randomUUID,randomBytes} from 'node:crypto';
@@ -57,6 +58,7 @@ export function createApp({store,secret,gateway=null,ai=companion,whatsappAI,wel
  route('post','/reports/lookup',limiter(20,900000),async(req,res)=>{const capability=String(req.body.protocol||'').trim();if(!/^[\w-]{43}$/.test(capability))throw fail(404,'Protocolo não encontrado.');const r=await store.get('report',lookup(secret,'report',digest(capability)));if(!r)throw fail(404,'Protocolo não encontrado.');res.json(reportSafe(r));});
  app.use('/api',wrap(auth));
  badges.installAuthenticated(admin);channels.install(route,admin);
+ installBusinessReports({route,store,admin,companyFor,channels});
  installOnboarding({route,store,admin,channels,gateway,platform});installBoards({route,store,secret});installEmployeeFiles({route,store});
  const waAI=installWhatsAppAI({route,store,secret,admin,settingsFor,companyFor,platform,channels,ai:whatsappAI});
  const hub=installWhatsAppInbox({route,store,secret,admin,gateway,configFor:waAI.configFor,channels,wellbeingAI,saveDocument:(u,f)=>attendance.saveDocument(u,f,'whatsapp')});app.locals.whatsappHub=hub;
