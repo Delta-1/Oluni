@@ -10,6 +10,7 @@ import {AppErrorBoundary} from './AppErrorBoundary';
 import OluniApp from './OluniApp';
 import {AppUpdateNotice} from './app-updates';
 import './readability.css';
+import './whatsapp-layout.css';
 type Any=Record<string,any>;
 const moods=[{score:1,face:'😔',name:'Muito mal',color:'#c98c7c'},{score:2,face:'🙁',name:'Mal',color:'#d5ae72'},{score:3,face:'😐',name:'Regular',color:'#d5c581'},{score:4,face:'🙂',name:'Bem',color:'#91b997'},{score:5,face:'😄',name:'Muito bem',color:'#5c9b81'}];
 const dates=(v:string,options:Intl.DateTimeFormatOptions={day:'2-digit',month:'short'})=>new Date(v.length===10?v+'T12:00:00Z':v).toLocaleDateString('pt-BR',options);

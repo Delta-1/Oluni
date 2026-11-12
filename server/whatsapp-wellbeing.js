@@ -9,7 +9,7 @@ export function installWellbeing({route,store,secret,admin,gateway,configFor,cha
  const config=async cid=>({...wellbeingDefaults,...await store.get('wa-wellbeing-settings',configId(cid),cid)});
  const eligible=u=>u.active&&(u.phone||u.whatsappJid)&&u.whatsappConsent&&u.wellbeingWhatsappConsent;
  const active=async(cid,uid,key=cid)=>{const s=await store.get('wa-wellbeing-session',sessionId(cid,uid,key),cid);return s&&Date.parse(s.until)>Date.now();};
- const stop=async(cid,uid,key)=>{if(key){await store.remove('wa-wellbeing-session',sessionId(cid,uid,key),cid);await store.remove('wa-wellbeing-chat',historyId(cid,uid,key),cid);}else for(const kind of ['wa-wellbeing-session','wa-wellbeing-chat'])for(const row of await store.list(kind,cid,{owner:uid}))await store.remove(kind,row.id,cid);};
+ const stop=async(cid,uid,key)=>{if(key){await Promise.all([store.remove('wa-wellbeing-session',sessionId(cid,uid,key),cid),store.remove('wa-wellbeing-chat',historyId(cid,uid,key),cid)]);}else for(const kind of ['wa-wellbeing-session','wa-wellbeing-chat'])for(const row of await store.list(kind,cid,{owner:uid}))await store.remove(kind,row.id,cid);};
  const open=async(cid,uid,key=cid)=>store.put('wa-wellbeing-session',cid,{owner:uid,channelId:key,until:new Date(Date.now()+24*3600000).toISOString()},sessionId(cid,uid,key));
  const disclosure='Sou um bot do Oluni. Participar é opcional. Para registrar humor, envie HUMOR 1 (muito mal) a HUMOR 5 (muito bem). O RH vê somente o humor que você autorizar. Esta conversa fica fora da caixa de atendimento, mas quem acessa o WhatsApp conectado pode ler as mensagens no aparelho. MENU volta aos serviços; PARAR BEM-ESTAR desativa os convites.';
  const opening=async cid=>(await config(cid)).opening+'\n\n'+disclosure;

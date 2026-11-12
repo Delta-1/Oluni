@@ -1,61 +1,38 @@
-# WhatsApp da empresa - Oluni 2.5
+# WhatsApp e Crachá · Oluni 3.2
 
-## Atendimento pela equipe
+WhatsApp ocupa a tela inteira no computador e no celular. Use a seta Oluni para voltar ao sistema. A faixa superior reúne Conversas, Kanban, Bot, Equipe e Menu. As configurações de saudação, IA, bem-estar e números ficam dentro dessa área; as permissões por setor continuam valendo.
 
-O RH conecta o número em **WhatsApp > Conexão**. Em **Equipe**, autoriza os colaboradores que vão atender com seus próprios logins. Eles encontram **Atendimento WhatsApp** em **Mais**; essa permissão não abre as configurações de IA, os documentos pessoais ou a visão de bem-estar do RH.
+Ao abrir Conversas com um número desconectado, o administrador vê as instruções e a conexão é iniciada automaticamente. O QR válido chega da sessão de WhatsApp e é atualizado na tela. O aparelho da empresa deve escaneá-lo em Aparelhos conectados → Conectar aparelho. Atendentes sem permissão administrativa veem a orientação para pedir ao responsável a vinculação.
 
-Em **Conversas**, a equipe recebe novas mensagens de contatos externos e colaboradores, busca o contato, assume, responde, transfere e finaliza. Assumir pausa o bot naquela conversa. Devolver ao bot libera os serviços automáticos. As respostas identificam o atendente. Texto, PDF, imagens JPG/PNG/WebP, áudio OGG/MP3/M4A e vídeo MP4 têm limite de 5 MB por anexo. Não há importação de conversas antigas nem grupos. Mensagens novas enviadas pelo aparelho da empresa também entram no atendimento e pausam o bot; mensagens enviadas pelo próprio sistema têm marcadores para evitar ecos e exposição de códigos de recuperação.
+## Chave padrão do sistema
 
-## Menu de visitantes, sem IA
+No Railway, abra o serviço Oluni → Variables:
 
-Contatos não vinculados recebem uma saudação e um menu de atendimento da empresa. O RH edita os textos e a ativação em **Bot e bem-estar > Menu automático para visitantes**. `{empresa}` insere o nome da empresa.
+- OLUNI_AI_API_KEY: chave secreta do provedor.
+- OLUNI_AI_PROVIDER: openai ou gemini.
+- OLUNI_AI_MODEL: identificador de um modelo liberado para essa chave.
+- OLUNI_AI_ENABLED: true para disponibilizar a integração.
 
-- 1 / RH: solicita atendimento ao RH.
-- 2 / ATESTADO: inicia a identificação para envio de documento.
-- 3 / ATENDIMENTO: atendimento geral da empresa.
-- MENU: apresenta os serviços novamente.
-- PARAR: interrompe as respostas automáticas; MENU permite voltar.
+Aplique as variáveis no serviço para reiniciar com a configuração. A chave central é lida somente no servidor; não use variáveis VITE_ para guardar segredos e não publique a chave no GitHub.
 
-Visitantes não usam a chave de IA, mesmo quando o modo de perguntas livres está ativo para colaboradores. Ao solicitar uma pessoa, o bot confirma e aguarda, sem repetir o menu em cada mensagem. O atendente deve assumir a conversa para responder.
+A Flora e os bots sem chave própria usam a central. Configurações próprias já salvas continuam tendo prioridade: para usar a central, remova a chave própria da empresa/setor. Ativação do bot e consentimentos dos colaboradores continuam sendo respeitados. O menu de serviços e a organização de documentos não precisam de IA.
 
-## Atestado com nome ou código
+Para uma chave apenas do setor: WhatsApp → Bot → Assistente de IA → Chave própria deste setor e provedor. Salve e use Testar configuração salva. Para a chave própria da Flora na empresa, use a aba IA do Oluni. Uma chave salva pelo RH nunca altera a integração central de outras empresas.
 
-1. A pessoa envia **ATESTADO** ou **2**.
-2. O bot solicita **nome completo ou código pessoal**, por exemplo 0001.
-3. A identificação precisa coincidir com uma pessoa ativa da empresa **e com o número cadastrado**. O código ou nome isolado não dá acesso a uma conta. Se os dados forem ambíguos, use o código; se o número não corresponder, envie pelo aplicativo ou procure o RH.
-4. Depois de confirmar a identificação, o bot pede PDF, JPG ou PNG de até 5 MB.
-5. O arquivo fica na pasta pessoal em **Documentos**, para análise do RH. Ele não entra como anexo na caixa compartilhada. A IA não lê ou aprova atestados.
+## Atualização das mensagens
 
-A confirmação vale por 15 minutos e não altera o e-mail, a senha, o WhatsApp verificado para recuperação ou as autorizações de IA. Não se pede senha pelo WhatsApp. O aplicativo continua permitindo upload direto na própria conta autenticada.
+A tela mantém uma consulta autenticada em espera. Uma gravação de atendimento acorda a consulta imediatamente, sem o intervalo anterior de 3,5–4 segundos. O aviso contém apenas uma revisão; a tela busca os dados novamente pelas rotas autorizadas. As permissões são conferidas ao abrir e ao finalizar a espera. Mensagens privadas de bem-estar não acionam o canal de atendimento.
 
-## Bot inicia o contato de bem-estar
+O histórico ativo usa um cache limitado em memória, atualizado após gravações confirmadas. Pausar a aba cancela a espera e voltar à aba sincroniza novamente. O envio aparece imediatamente como Enviando e só muda para Enviada após a confirmação do transporte. A reserva durável e o identificador de envio evitam duplicar uma tentativa de entrega incerta.
 
-O RH configura **WhatsApp > Bot e bem-estar > Convites de bem-estar**:
+As leituras das chaves de transporte e várias consultas independentes foram paralelizadas. O limite geral de uso autenticado é aplicado por usuário, evitando que toda a equipe do escritório compartilhe o mesmo limite do IP. Os limites específicos de login, senha e envio continuam ativos.
 
-- **Programado:** dias e horário fixo.
-- **Automático:** dias e uma janela de horário; o minuto varia por pessoa e dia dentro dela.
-- Intervalo mínimo de 1 a 30 dias; padrão 3 dias.
-- Pergunta de abertura editável, sempre acompanhada da identificação do bot, participação opcional e forma de parar.
+O mecanismo de aviso em memória pressupõe a única réplica atual do serviço Railway. Antes de aumentar o número de réplicas, adicione um distribuidor de eventos entre instâncias. A melhoria foi verificada com testes automatizados e transporte de demonstração; o tempo final de entrega real também depende do WhatsApp, da rede e dos anexos.
 
-A função começa desativada. O colaborador precisa verificar seu telefone e autorizar **Quero receber convites de bem-estar pelo WhatsApp** no perfil, além do atendimento pelo WhatsApp. Não é necessário mandar OI para receber um convite autorizado. Para continuar conversando com IA, ele também autoriza IA e o RH salva/ativa a chave na configuração do bot. O primeiro convite e o comando HUMOR funcionam sem IA.
+## Crachá
 
-- **BEM-ESTAR / CONVERSAR:** inicia a conversa de escuta quando habilitada e autorizada.
-- **HUMOR 1 a HUMOR 5:** registro autodeclarado; o compartilhamento com o RH segue a preferência do perfil.
-- **PARAR BEM-ESTAR:** remove a autorização de convites sem interromper os serviços comuns.
-- **MENU:** encerra a conversa de bem-estar e retorna aos serviços.
+A aba Crachá reúne Modelo e Imprimir. Modelo permite editar a logo, o fundo, os temas, a fonte, as medidas e a folha. Salvar modelo define um único padrão para a empresa; cada colaborador recebe automaticamente seus próprios dados, foto, código e QR. Imprimir permite selecionar a equipe e as quantidades.
 
-O bot faz perguntas abertas sobre o dia de trabalho. Não faz diagnóstico, testes clínicos, classificação de saúde mental ou avaliação para decisões de emprego. O RH só vê os check-ins compartilhados; não recebe um laudo ou classificação inferida pela IA.
+## Aplicativo
 
-### Limite de privacidade do número compartilhado
-
-O histórico de bem-estar fica separado da caixa de atendimento, da conversa da Flora no aplicativo e da IA de serviços. O contexto de IA conserva até 16 mensagens por sessão de até 24 horas e é limpo ao voltar ao menu, revogar participação ou assumir atendimento humano. **Quem tem acesso ao WhatsApp conectado pode ver as mensagens no próprio aparelho**; não há promessa de sigilo contra o dono do número. O provedor de IA recebe os textos dirigidos à IA após autorização. Essa informação aparece no perfil e na mensagem de convite.
-
-### Operação do agendador
-
-O processo persistente do Oluni no Railway verifica os envios a cada minuto usando o fuso configurado na empresa. O horário programado tem tolerância de 30 minutos; o modo automático também respeita o fim da janela. Não há disparo retroativo em massa após uma indisponibilidade. São processados até 30 convites por rodada; para equipes grandes, prefira uma janela distribuída. O processo atual possui uma réplica.
-
-Cada envio tem reserva durável por empresa, pessoa e dia, antes de sair para o WhatsApp. Reiniciar não repete reservas existentes. Falhas sem confirmação ficam como entrega incerta e não são reenviadas automaticamente. Um atendimento humano em andamento ou uma conversa de bem-estar ainda aberta impede outro convite. O painel apresenta somente situações de entrega, sem conteúdo de saúde.
-
-## Validação
-
-Os testes locais usam banco em memória, contas fictícias, transporte simulado e IA simulada. Cobrem isolamento por empresa, permissão de atendente, atribuição concorrente, envio idempotente, anexos, identificação de atestado, menu de visitantes sem IA, consentimentos, fuso/horário, frequência, reinício e entrega incerta. Envios e pareamento reais precisam de número conectado e chave válida da empresa. Nenhum disparo real à equipe foi realizado na implementação.
+A tela não deve ultrapassar a largura do aparelho. Listas e mensagens têm sua própria rolagem. O fundo nativo Android acompanha o tema escuro e não exibe o efeito branco ao arrastar além da borda. O APK é gerado no GitHub Actions; instalação/atualização seguem as regras de assinatura e confirmação do Android.

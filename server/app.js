@@ -32,8 +32,9 @@ export function createApp({store,secret,gateway=null,ai=companion,whatsappAI,wel
   }
   if(req.method==='OPTIONS')return res.sendStatus(204);
  }next();});
- app.use(express.json({limit:'8mb'}));app.use('/api',limiter(240));
- const route=(method,path,...handlers)=>app[method]('/api'+path,...handlers.map(h=>h.constructor.name==='AsyncFunction'?wrap(h):h));
+ app.use(express.json({limit:'8mb'}));
+ let authenticatedRoutes=false;const publicLimit=limiter(240);
+ const route=(method,path,...handlers)=>app[method]('/api'+path,...(authenticatedRoutes?[]:[publicLimit]),...handlers.map(h=>h.constructor.name==='AsyncFunction'?wrap(h):h));
  const auth=async(req,res,next)=>{const raw=String(req.get('authorization')||'').replace(/^Bearer /,'');if(!/^[\w-]{43}$/.test(raw))throw fail(401,'Entre na sua conta.');const session=await store.get('session',lookup(secret,'session',digest(raw)));if(!session||Date.parse(session.expiresAt)<Date.now())throw fail(401,'Sua sessão expirou. Entre novamente.');const user=await store.get('user',session.userId,session.companyId);if(!user||!user.active)throw fail(401,'Esta conta não está ativa.');req.user=user;req.sessionId=session.id;next();};
  const admin=(req,res,next)=>{if(req.user.role!=='admin')return res.status(403).json({error:'Acesso restrito ao RH administrador.'});next();};
  const platform=createPlatformAI(platformEnv||process.env),rawSettingsFor=cid=>store.get('settings',lookup(secret,'settings',cid),cid);
@@ -56,7 +57,7 @@ export function createApp({store,secret,gateway=null,ai=companion,whatsappAI,wel
  res.status(201).json(await issue(await ensureEmployeeCode(store,secret,user),req.body.remember===true));});
  route('post','/auth/login',authLimit,async(req,res)=>{const email=String(req.body.email||'').trim().toLowerCase(),u=await store.get('user',lookup(secret,'email',email));if(!await verifyPassword(req.body.password,u?.passwordHash)||!u?.active)throw fail(401,'E-mail ou senha incorretos.');res.json(await issue(await ensureEmployeeCode(store,secret,u),req.body.remember===true));});
  route('post','/reports/lookup',limiter(20,900000),async(req,res)=>{const capability=String(req.body.protocol||'').trim();if(!/^[\w-]{43}$/.test(capability))throw fail(404,'Protocolo não encontrado.');const r=await store.get('report',lookup(secret,'report',digest(capability)));if(!r)throw fail(404,'Protocolo não encontrado.');res.json(reportSafe(r));});
- app.use('/api',wrap(auth));
+ app.use('/api',wrap(auth),limiter(600));authenticatedRoutes=true;
  badges.installAuthenticated(admin);channels.install(route,admin);
  installBusinessReports({route,store,admin,companyFor,channels});
  installOnboarding({route,store,admin,channels,gateway,platform});installBoards({route,store,secret});installEmployeeFiles({route,store});
@@ -147,7 +148,7 @@ export function createApp({store,secret,gateway=null,ai=companion,whatsappAI,wel
  if(gateway){
   const legacy=gateway.onMessage;app.locals.channels=channels;app.locals.platform=platform;
   gateway.onMessage=(cid,jid,message,attachment=null,meta={})=>hub.receive(cid,jid,message,attachment,meta,legacy);
-  gateway.onOwnMessage=hub.own;gateway.onReplySent=hub.delivery;gateway.shouldSendReply=hub.canSendReply;gateway.onMutation=hub.mutation;gateway.onReaction=hub.reaction;
+  gateway.onConnectionChange=hub.connectionChanged;gateway.onOwnMessage=hub.own;gateway.onReplySent=hub.delivery;gateway.shouldSendReply=hub.canSendReply;gateway.onMutation=hub.mutation;gateway.onReaction=hub.reaction;
   gateway.onStatus=async(key,id,status)=>{const context=await channels.resolve(key);if(!context)return;const cid=context.companyId;for(const m of await store.list('wa-message',cid,{limit:5000}))if(m.providerId===id&&(m.channelId||cid)===key&&m.direction!=='in'){m.status=status>=4?'read':status>=3?'delivered':m.status;await store.put('wa-message',cid,m,m.id);}};
  }
 

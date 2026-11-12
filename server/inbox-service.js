@@ -1,3 +1,4 @@
+import {inboxUpdates} from './inbox-updates.js';
 import {randomUUID} from 'node:crypto';
 import {fail,lookup,text,limiter,digest,publicUser} from './security.js';
 import {serial} from './attendance.js';
@@ -5,6 +6,7 @@ import {installWhatsAppIntake} from './whatsapp-intake.js';
 import {installWellbeing} from './whatsapp-wellbeing.js';
 import {canAttend,checkedAttachment} from './whatsapp-inbox.js';
 export function installWhatsAppInbox({route,store,secret,admin,gateway,configFor,channels,wellbeingAI,saveDocument}){
+ const updates=inboxUpdates(store);
  const staff=(req,res,next)=>canAttend(req.user)?next():res.status(403).json({error:'Acesso restrito à equipe de atendimento.'});
  const tid=(cid,jid,key=cid)=>lookup(secret,'wa-thread',cid,...(key===cid?[]:[key]),jid);
  const threadFor=(cid,jid,key=cid)=>store.get('wa-thread',tid(cid,jid,key),cid);
@@ -49,15 +51,21 @@ export function installWhatsAppInbox({route,store,secret,admin,gateway,configFor
   let reply,quoted;if(b.replyTo){const source=await messageFor(cid,t,b.replyTo);if(!source.providerId||source.deletedAt)throw fail(400,'Esta mensagem não pode ser citada.');reply={id:source.id,text:(source.text||source.file?.name||'Arquivo').slice(0,180),author:source.agentName||t.name};quoted={key:source.providerKey||{id:source.providerId,remoteJid:t.transportJid||t.jid,fromMe:source.direction!=='in'},message:{conversation:source.text||source.file?.name||'Arquivo'}};}
   let checked,file;if(b.file){checked=checkedAttachment(b.file);file=await addFile(cid,t.id,checked);}
   const person=await findUser(cid,t.jid,key);if(person)await wellbeing.stop(cid,person.id,key);
-  const msg=await add(cid,t,{direction:'out',text:content,agentId:u.id,agentName:u.name,file:file||null,reply:reply||null,forwarded:!!b.forwarded,status:'sending',contentHash:hash},id);
+  const msg=await add(cid,t,{direction:'out',text:content,agentId:u.id,agentName:u.name,file:file||null,reply:reply||null,forwarded:!!b.forwarded,status:'sending',clientRequestId:requestId,contentHash:hash},id);
   try{const options={quoted,forwarded:!!b.forwarded},body=signature(u.name,content,c),sent=checked?await gateway.sendMedia(key,t.transportJid||t.jid,checked,body,options):await gateway.sendText(key,t.transportJid||t.jid,body,options);msg.providerId=sent?.key?.id||null;msg.providerKey=sent?.key||null;msg.status='sent';}
   catch{msg.status='uncertain';}
   await store.put('wa-message',cid,msg,id);return msg;
  };
+ route('get','/whatsapp/updates',staff,async(req,res)=>{
+  const cid=req.user.companyId,key=String(req.query.channelId||cid);await access(req.user,key);
+  const abort=new AbortController(),cancel=()=>abort.abort();res.on('close',cancel);
+  try{const result=await updates.wait(cid,key,String(req.query.cursor||''),abort.signal);if(!result||res.destroyed)return;const fresh=await store.get('user',req.user.id,cid);if(!canAttend(fresh))throw fail(403,'Seu acesso ao atendimento foi alterado.');await access(fresh,key);res.json(result);}finally{res.off('close',cancel);}
+ });
  route('get','/whatsapp/inbox',staff,async(req,res)=>{
-  const allowed=await channels.list(req.user),ids=new Set(allowed.map(c=>c.id)),key=req.query.channelId?String(req.query.channelId):null;if(key)await access(req.user,key);
-  const list=(await store.list('wa-thread',req.user.companyId,{limit:5000})).filter(t=>ids.has(t.channelId||req.user.companyId)&&(!key||(t.channelId||req.user.companyId)===key));
-  res.json({threads:list.sort((a,b)=>Number(!!b.pinned)-Number(!!a.pinned)||b.updatedAt.localeCompare(a.updatedAt)).map(t=>threadSafe({...t,channelId:t.channelId||req.user.companyId})),agents:await agents(req.user.companyId,key),channels:allowed,userId:req.user.id});
+  const key=req.query.channelId?String(req.query.channelId):null;if(key)await access(req.user,key);
+  const [allowed,rows,team]=await Promise.all([channels.list(req.user),store.list('wa-thread',req.user.companyId,{limit:5000}),agents(req.user.companyId,key)]),ids=new Set(allowed.map(c=>c.id));
+  const list=rows.filter(t=>ids.has(t.channelId||req.user.companyId)&&(!key||(t.channelId||req.user.companyId)===key));
+  res.json({threads:list.sort((a,b)=>Number(!!b.pinned)-Number(!!a.pinned)||b.updatedAt.localeCompare(a.updatedAt)).map(t=>threadSafe({...t,channelId:t.channelId||req.user.companyId})),agents:team,channels:allowed,userId:req.user.id});
  });
  route('post','/whatsapp/inbox',staff,async(req,res)=>{
   const c=await access(req.user,req.body.channelId||req.user.companyId);let jid,name;
@@ -67,10 +75,10 @@ export function installWhatsAppInbox({route,store,secret,admin,gateway,configFor
  });
  route('get','/whatsapp/groups',staff,async(req,res)=>{const c=await access(req.user,String(req.query.channelId||req.user.companyId));res.json(await gateway.groups(c.id));});
  route('get','/whatsapp/inbox/:id/messages',staff,async(req,res)=>{
-  const cid=req.user.companyId,t=await owned(req.params.id,req.user),all=(await store.list('wa-message',cid,{owner:t.id,limit:10000})).filter(m=>!m.hiddenFor?.includes(req.user.id)).sort((a,b)=>a.at.localeCompare(b.at)||a.id.localeCompare(b.id));
+  const cid=req.user.companyId,t=await owned(req.params.id,req.user),[rows,team]=await Promise.all([updates.messageRows(cid,t.id),agents(cid,t.channelId||cid)]),all=rows.filter(m=>!m.hiddenFor?.includes(req.user.id)).sort((a,b)=>a.at.localeCompare(b.at)||a.id.localeCompare(b.id));
   let before=null;if(req.query.before)try{before=JSON.parse(Buffer.from(String(req.query.before),'base64url').toString());if(typeof before.at!=='string'||typeof before.id!=='string')throw Error();}catch{throw fail(400,'Página de histórico inválida.');}
   const list=all.filter(m=>!before||m.at<before.at||(m.at===before.at&&m.id<before.id)),messages=list.slice(-200),first=messages[0];
-  res.json({thread:threadSafe(t),agents:await agents(cid,t.channelId||cid),messages,hasMore:list.length>200,before:first?Buffer.from(JSON.stringify({at:first.at,id:first.id})).toString('base64url'):null});
+  res.json({thread:threadSafe(t),agents:team,messages,hasMore:list.length>200,before:first?Buffer.from(JSON.stringify({at:first.at,id:first.id})).toString('base64url'):null});
  });
  route('post','/whatsapp/inbox/:id/read',staff,async(req,res)=>serial('inbox:'+req.params.id,async()=>{const t=await owned(req.params.id,req.user);t.unread=0;await store.put('wa-thread',req.user.companyId,t,t.id);const rows=await store.list('wa-message',req.user.companyId,{owner:t.id,limit:100});try{await gateway?.read?.(t.channelId||req.user.companyId,rows.filter(m=>m.direction==='in'&&m.providerKey).map(m=>m.providerKey));}catch{}res.json({ok:true});}));
  route('patch','/whatsapp/inbox/:id',staff,async(req,res)=>serial('inbox:'+req.params.id,async()=>{
@@ -144,5 +152,5 @@ export function installWhatsAppInbox({route,store,secret,admin,gateway,configFor
  const delivery=async(key,jid,response,sent,error)=>{const c=await context(key);if(!c)return;const cid=c.companyId,t=await threadFor(cid,jid,key);if(!t)return;const rows=await store.list('wa-message',cid,{owner:t.id,limit:100}),m=rows.find(m=>m.direction==='bot'&&m.status==='prepared'&&m.text===response);if(m){m.status=error?'uncertain':'sent';m.providerId=sent?.key?.id||null;m.providerKey=sent?.key||null;await store.put('wa-message',cid,m,m.id);}};
  const mutation=async(key,messageKey,update)=>{const c=await context(key);if(!c)return;const cid=c.companyId;for(const m of await store.list('wa-message',cid,{limit:5000}))if(m.providerId===messageKey.id&&(m.channelId||cid)===key){if(update.message===null){if(m.file)await removeFile(m.file,cid);m.deletedAt=new Date().toISOString();m.text='';m.file=null;}else{const edited=update.message?.editedMessage?.message||update.message,body=edited?.conversation||edited?.extendedTextMessage?.text;if(body){m.text=body.slice(0,16000);m.editedAt=new Date().toISOString();}}await store.put('wa-message',cid,m,m.id);}};
  const reaction=async(key,messageKey,value)=>{const c=await context(key);if(!c)return;const cid=c.companyId;for(const m of await store.list('wa-message',cid,{limit:5000}))if(m.providerId===messageKey.id&&(m.channelId||cid)===key){const who=value.key?.participant||value.key?.remoteJid||'contato';m.reactions=(m.reactions||[]).filter(r=>r.who!==who);if(value.text)m.reactions.push({who,emoji:value.text.slice(0,12)});await store.put('wa-message',cid,m,m.id);}};
- return {receive,own,delivery,mutation,reaction,wellbeing,canSendReply:async(key,jid)=>{const c=await context(key);return !!c&&!jid.endsWith('@g.us')&&!(await threadFor(c.companyId,jid,key))?.botPaused;}};
+ return {receive,own,delivery,mutation,reaction,wellbeing,connectionChanged:async key=>{const c=await context(key);if(c)updates.touch(c.companyId,key);},canSendReply:async(key,jid)=>{const c=await context(key);return !!c&&!jid.endsWith('@g.us')&&!(await threadFor(c.companyId,jid,key))?.botPaused;}};
 }
