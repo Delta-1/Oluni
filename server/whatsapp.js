@@ -3,67 +3,62 @@ import QRCode from 'qrcode';
 import pino from 'pino';
 import {mediaTypes} from './whatsapp-inbox.js';
 import {lookup,fail} from './security.js';
+import {voiceToOpus} from './voice.js';
+const validJid=jid=>/^\d[\d-]{5,30}@(s\.whatsapp\.net|lid|g\.us)$/.test(jid||'');
 export function acceptMessage(raw,type,start){const at=Number(raw.messageTimestamp?.toString?.()||0)*1000;const jid=raw.key?.remoteJid||'';return type==='notify'&&!raw.key?.fromMe&&!!raw.key?.id&&!!raw.message&&(jid.endsWith('@s.whatsapp.net')||jid.endsWith('@lid'))&&Number.isFinite(at)&&at>=Date.parse(start);}
-export function acceptInboxEvent(raw,type,start){return acceptMessage({...raw,key:{...raw.key,fromMe:false}},raw.key?.fromMe&&type==='append'?'notify':type,start);}
+export function acceptInboxEvent(raw,type,start){const at=Number(raw.messageTimestamp?.toString?.()||0)*1000;return (type==='notify'||type==='append'&&raw.key?.fromMe)&&!!raw.key?.id&&!!raw.message&&validJid(raw.key.remoteJid)&&Number.isFinite(at)&&at>=Date.parse(start);}
 export class WhatsAppGateway {
- constructor(store,secret){this.store=store;this.secret=secret;this.sessions=new Map();this.queues=new Map();this.onMessage=async()=>null;this.ownSent=new Set();}
- async config(cid){return await this.store.get('wa-config',lookup(this.secret,'wa-config',cid),cid)||{requested:false,startedAt:null};}
- async save(cid,value){return this.store.put('wa-config',cid,value,lookup(this.secret,'wa-config',cid));}
- async status(cid){const c=await this.config(cid),s=this.sessions.get(cid);return {status:s?.status||'disconnected',qr:s?.qr||null,phone:s?.phone||c.phone||null,lastError:s?.lastError||null,startedAt:c.startedAt};}
- async storedAuth(cid){const id=k=>lookup(this.secret,'wa-auth',cid,k);const read=async k=>{const r=await this.store.get('wa-auth',id(k),cid);return r?JSON.parse(r.value,BufferJSON.reviver):null;};const write=async(k,v)=>this.store.put('wa-auth',cid,{value:JSON.stringify(v,BufferJSON.replacer)},id(k));const creds=await read('creds')||initAuthCreds();return {state:{creds,keys:{get:async(type,ids)=>{const out={};for(const key of ids){let v=await read(type+'-'+key);if(type==='app-state-sync-key'&&v)v=proto.Message.AppStateSyncKeyData.fromObject(v);out[key]=v;}return out;},set:async data=>{for(const [type,items]of Object.entries(data))for(const [k,v]of Object.entries(items))if(v)await write(type+'-'+k,v);else await this.store.remove('wa-auth',id(type+'-'+k),cid);}}},save:()=>write('creds',creds)};}
- async connect(cid){const current=this.sessions.get(cid);if(current&&['connected','connecting','qr_pending'].includes(current.status))return;const c=await this.config(cid);c.requested=true;await this.save(cid,c);this.start(cid).catch(()=>{});}
- async start(cid,attempt=0){const old=this.sessions.get(cid);if(old?.status==='connected'||old?.status==='connecting')return;const s={status:'connecting',qr:null,stop:false,lastError:null};this.sessions.set(cid,s);try{const c=await this.config(cid);if(!c.requested)return;const auth=await this.storedAuth(cid);let version;try{version=(await fetchLatestBaileysVersion()).version;}catch{}const sock=makeWASocket({auth:auth.state,logger:pino({level:'silent'}),...(version?{version}:{}),browser:['Oluni','Chrome','2.0.0'],syncFullHistory:false,shouldSyncHistoryMessage:()=>false,markOnlineOnConnect:false});s.sock=sock;
- sock.ev.on('creds.update',()=>{auth.save().catch(()=>{s.lastError='Não foi possível salvar a sessão. Reconecte o WhatsApp.';});});
- sock.ev.on('connection.update',u=>{(async()=>{if(this.sessions.get(cid)!==s||s.stop)return;if(u.qr){s.qr=await QRCode.toDataURL(u.qr);s.status='qr_pending';}if(u.connection==='open'){s.status='connected';s.qr=null;s.phone=sock.user?.id?.split(':')[0];const config=await this.config(cid);if(!config.startedAt)config.startedAt=new Date().toISOString();config.phone=s.phone;config.requested=true;await this.save(cid,config);}if(u.connection==='close'){s.status='disconnected';s.qr=null;if(s.stop)return;const code=u.lastDisconnect?.error?.output?.statusCode;if(code===DisconnectReason.loggedOut){s.lastError='Sessão encerrada. Gere outro QR Code.';await this.save(cid,{...await this.config(cid),requested:false});for(const a of await this.store.list('wa-auth',cid))await this.store.remove('wa-auth',a.id,cid);}else{const next=attempt+1;s.lastError='Reconectando ao WhatsApp…';s.timer=setTimeout(()=>{if(this.sessions.get(cid)===s&&!s.stop)this.start(cid,next).catch(()=>{});},Math.min(60000,2000*2**Math.min(next,5)));s.timer.unref();}}})().catch(()=>{s.lastError='Não foi possível atualizar a conexão.';});});
- // Deliberately no contacts.upsert, chats or messaging-history.set listeners.
- sock.ev.on('messages.upsert',({messages,type})=>{for(const raw of messages){
-  const queueKey=cid+':'+raw.key?.remoteJid,old=this.queues.get(queueKey)||Promise.resolve();
-  const task=old.catch(()=>{}).then(()=>this.receiveRaw(cid,s,sock,raw,type));this.queues.set(queueKey,task);
-  task.catch(()=>{}).finally(()=>{if(this.queues.get(queueKey)===task)this.queues.delete(queueKey);});
- }});
- sock.ev.on('messages.update',updates=>{for(const {key,update} of updates)if(update.status&&key.id)this.onStatus?.(cid,key.id,update.status).catch(()=>{});});
-
- }catch{s.status='disconnected';s.lastError='Não foi possível iniciar o WhatsApp. Tente gerar outro QR Code.';}}
- async rememberSent(cid,id){if(!id)return;this.ownSent.add(id);if(this.ownSent.size>2000)this.ownSent.delete(this.ownSent.values().next().value);await this.store.put('wa-sent-marker',cid,{at:new Date().toISOString()},lookup(this.secret,'wa-sent-marker',cid,id));}
- async receiveRaw(cid,s,sock,raw,type){
-  if(s.stop)return;const c=await this.config(cid);
-  if(!c.requested||!c.startedAt||!acceptInboxEvent(raw,type,c.startedAt))return;
-  if(raw.key.fromMe&&(this.ownSent.has(raw.key.id)||await this.store.get('wa-sent-marker',lookup(this.secret,'wa-sent-marker',cid,raw.key.id),cid)))return;
+ constructor(store,secret){this.store=store;this.secret=secret;this.sessions=new Map();this.queues=new Map();this.onMessage=async()=>null;this.ownSent=new Set();this.groupsCache=new Map();}
+ async tenant(key){if(!this.resolveContext)return key;const c=await this.resolveContext(key);if(!c)throw fail(404,'Conexão não encontrada.');return c.companyId;}
+ async config(key){const cid=await this.tenant(key);return await this.store.get('wa-config',lookup(this.secret,'wa-config',key),cid)||{requested:false,startedAt:null};}
+ async save(key,value){return this.store.put('wa-config',await this.tenant(key),{...value,connectionId:key},lookup(this.secret,'wa-config',key));}
+ async status(key){const c=await this.config(key),s=this.sessions.get(key);return {status:s?.status||'disconnected',qr:s?.qr||null,phone:s?.phone||c.phone||null,lastError:s?.lastError||null,startedAt:c.startedAt};}
+ async clearAuth(key){const cid=await this.tenant(key);for(const a of await this.store.list('wa-auth',cid))if(a.connectionId===key||!a.connectionId&&key===cid)await this.store.remove('wa-auth',a.id,cid);}
+ async storedAuth(key){const cid=await this.tenant(key),id=k=>lookup(this.secret,'wa-auth',key,k);const read=async k=>{const r=await this.store.get('wa-auth',id(k),cid);return r?JSON.parse(r.value,BufferJSON.reviver):null;};const write=async(k,v)=>this.store.put('wa-auth',cid,{connectionId:key,value:JSON.stringify(v,BufferJSON.replacer)},id(k));const creds=await read('creds')||initAuthCreds();return {state:{creds,keys:{get:async(type,ids)=>{const out={};for(const k of ids){let v=await read(type+'-'+k);if(type==='app-state-sync-key'&&v)v=proto.Message.AppStateSyncKeyData.fromObject(v);out[k]=v;}return out;},set:async data=>{for(const [type,items]of Object.entries(data))for(const [k,v]of Object.entries(items))if(v)await write(type+'-'+k,v);else await this.store.remove('wa-auth',id(type+'-'+k),cid);}}},save:()=>write('creds',creds)};}
+ async connect(key){const s=this.sessions.get(key);if(s&&['connected','connecting','qr_pending'].includes(s.status))return;await this.save(key,{...await this.config(key),requested:true});this.start(key).catch(()=>{});}
+ async start(key,attempt=0){const old=this.sessions.get(key);if(old?.status==='connected'||old?.status==='connecting')return;const s={status:'connecting',qr:null,stop:false,lastError:null};this.sessions.set(key,s);
+  try{const c=await this.config(key);if(!c.requested)return;const auth=await this.storedAuth(key);let version;try{version=(await fetchLatestBaileysVersion()).version;}catch{}
+   const sock=makeWASocket({auth:auth.state,logger:pino({level:'silent'}),...(version?{version}:{}),browser:['Oluni','Chrome','3.0.0'],syncFullHistory:false,shouldSyncHistoryMessage:()=>false,markOnlineOnConnect:false});s.sock=sock;
+   sock.ev.on('creds.update',()=>{if(!s.stop)auth.save().catch(()=>{s.lastError='Não foi possível salvar a conexão.';});});
+   sock.ev.on('connection.update',u=>{(async()=>{if(this.sessions.get(key)!==s||s.stop)return;if(u.qr){s.qr=await QRCode.toDataURL(u.qr);s.status='qr_pending';}if(u.connection==='open'){s.status='connected';s.qr=null;s.phone=sock.user?.id?.split(':')[0];const config=await this.config(key);if(!config.startedAt)config.startedAt=new Date().toISOString();config.phone=s.phone;config.requested=true;await this.save(key,config);}if(u.connection==='close'){s.status='disconnected';s.qr=null;if(s.stop)return;const code=u.lastDisconnect?.error?.output?.statusCode;if(code===DisconnectReason.loggedOut){s.lastError='Sessão encerrada. Gere outro QR Code.';await this.save(key,{...await this.config(key),requested:false});await this.clearAuth(key);}else{s.lastError='Reconectando…';s.timer=setTimeout(()=>{if(this.sessions.get(key)===s&&!s.stop)this.start(key,attempt+1).catch(()=>{});},Math.min(60000,2000*2**Math.min(attempt+1,5)));s.timer.unref();}}})().catch(()=>{s.lastError='Não foi possível atualizar a conexão.';});});
+   sock.ev.on('messages.upsert',({messages,type})=>{for(const raw of messages){const q=key+':'+raw.key?.remoteJid,old=this.queues.get(q)||Promise.resolve(),task=old.catch(()=>{}).then(()=>this.receiveRaw(key,s,sock,raw,type));this.queues.set(q,task);task.catch(()=>{}).finally(()=>{if(this.queues.get(q)===task)this.queues.delete(q);});}});
+   sock.ev.on('messages.update',updates=>{for(const {key:messageKey,update} of updates){if(update.status&&messageKey.id)this.onStatus?.(key,messageKey.id,update.status).catch(()=>{});if(update.message===null||update.message)this.onMutation?.(key,messageKey,update).catch(()=>{});}});
+   sock.ev.on('messages.reaction',events=>{for(const event of events)this.onReaction?.(key,event.key,event.reaction).catch(()=>{});});
+  }catch{s.status='disconnected';s.lastError='Não foi possível iniciar este WhatsApp. Gere outro QR Code.';}
+ }
+ async rememberSent(key,id){if(!id)return;this.ownSent.add(key+':'+id);if(this.ownSent.size>2000)this.ownSent.delete(this.ownSent.values().next().value);await this.store.put('wa-sent-marker',await this.tenant(key),{connectionId:key,at:new Date().toISOString()},lookup(this.secret,'wa-sent-marker',key,id));}
+ async receiveRaw(key,s,sock,raw,type){
+  if(s.stop)return;const c=await this.config(key),cid=await this.tenant(key);if(!c.requested||!c.startedAt||!acceptInboxEvent(raw,type,c.startedAt))return;
+  if(raw.key.fromMe&&(this.ownSent.has(key+':'+raw.key.id)||await this.store.get('wa-sent-marker',lookup(this.secret,'wa-sent-marker',key,raw.key.id),cid)))return;
   const content=normalizeMessageContent(raw.message)||{},media=content.documentMessage||content.imageMessage||content.audioMessage||content.videoMessage||content.stickerMessage;
   let message=content.conversation||content.extendedTextMessage?.text||media?.caption||'';
+  if(content.reactionMessage){await this.onReaction?.(key,content.reactionMessage.key,{...content.reactionMessage,key:raw.key});return;}
   if(raw.key.fromMe&&/^Oluni: seu código para (redefinir a senha|verificar o WhatsApp) é \d{6}\./.test(message))return;
-  if(!message&&!media)return;message=message.slice(0,16000);
-  let sender=raw.key.remoteJid;
+  if(!message&&!media)return;message=message.slice(0,16000);let sender=raw.key.remoteJid;
   if(sender.endsWith('@lid')){if(raw.key.remoteJidAlt?.endsWith('@s.whatsapp.net'))sender=raw.key.remoteJidAlt;else try{sender=await sock.signalRepository.lidMapping.getPNForLID(sender)||sender;}catch{}}
-  const receiptId=lookup(this.secret,'wa-receipt',cid,raw.key.remoteJid,raw.key.id);
-  try{await this.store.put('wa-receipt',cid,{day:new Date().toISOString().slice(0,10)},receiptId,true);}catch(e){if(e.status===409)return;throw e;}
-  let attachment=null;
-  if(media){
-   if(!await this.canReceiveFile?.(cid,sender))return;
-   const mime=(media.mimetype||'').split(';')[0];
-   if(!mediaTypes.includes(mime)||Number(media.fileLength||0)>5*1024*1024){message=message||'[Arquivo em formato não suportado ou maior que 5 MB]';}
-   else{
-    const stream=await downloadMediaMessage(raw,'stream',{}, {logger:pino({level:'silent'}),reuploadRequest:sock.updateMediaMessage});const parts=[];let size=0;
-    for await(const chunk of stream){size+=chunk.length;if(size>5*1024*1024){stream.destroy();throw fail(400,'Arquivo maior que 5 MB.');}parts.push(chunk);}
-    attachment={buffer:Buffer.concat(parts),mime,name:media.fileName||('arquivo.'+(mime.split('/')[1]||'bin'))};
-   }
-  }
-  const meta={id:raw.key.id,name:raw.pushName||'',transportJid:raw.key.remoteJid};
-  if(raw.key.fromMe){await this.onOwnMessage?.(cid,sender,message,attachment,meta);return;}
-  const response=await this.onMessage(cid,sender,message,attachment,meta);
-  if(response&&!s.stop&&s.status==='connected'&&(!this.shouldSendReply||await this.shouldSendReply(cid,sender))){
-   try{const sent=await this.sendText(cid,raw.key.remoteJid,response);await this.onReplySent?.(cid,sender,response,sent,false);}
-   catch{await this.onReplySent?.(cid,sender,response,null,true);}
-  }
+  const receiptId=lookup(this.secret,'wa-receipt',key,raw.key.remoteJid,raw.key.id);try{await this.store.put('wa-receipt',cid,{connectionId:key,day:new Date().toISOString().slice(0,10)},receiptId,true);}catch(e){if(e.status===409)return;throw e;}
+  let attachment=null;if(media){if(!await this.canReceiveFile?.(key,sender))return;const mime=(media.mimetype||'').split(';')[0];if(!mediaTypes.includes(mime)||Number(media.fileLength||0)>5*1024*1024)message=message||'[Arquivo em formato não suportado ou maior que 5 MB]';else{const stream=await downloadMediaMessage(raw,'stream',{}, {logger:pino({level:'silent'}),reuploadRequest:sock.updateMediaMessage}),parts=[];let size=0;for await(const chunk of stream){size+=chunk.length;if(size>5*1024*1024){stream.destroy();throw fail(400,'Arquivo maior que 5 MB.');}parts.push(chunk);}attachment={buffer:Buffer.concat(parts),mime,name:media.fileName||('arquivo.'+(mime.split('/')[1]||'bin')),voice:!!content.audioMessage?.ptt,sticker:!!content.stickerMessage};}}
+  const q=content.extendedTextMessage?.contextInfo||media?.contextInfo||{},group=sender.endsWith('@g.us');let name=raw.pushName||'';
+  if(group){const cached=this.groupsCache.get(key+':'+sender);if(cached)name=cached;else try{name=(await sock.groupMetadata(sender)).subject||'Grupo';this.groupsCache.set(key+':'+sender,name);}catch{name='Grupo';}}
+  const meta={id:raw.key.id,name,participant:raw.key.participant||null,participantName:group?raw.pushName||'Participante':null,transportJid:raw.key.remoteJid,isGroup:group,quotedProviderId:q.stanzaId||null,providerKey:{id:raw.key.id,remoteJid:raw.key.remoteJid,fromMe:raw.key.fromMe===true,...(raw.key.participant?{participant:raw.key.participant}:{})}};
+  if(raw.key.fromMe){await this.onOwnMessage?.(key,sender,message,attachment,meta);return;}
+  const response=await this.onMessage(key,sender,message,attachment,meta);if(response&&!s.stop&&s.status==='connected'&&(!this.shouldSendReply||await this.shouldSendReply(key,sender))){try{const sent=await this.sendText(key,raw.key.remoteJid,response);await this.onReplySent?.(key,sender,response,sent,false);}catch{await this.onReplySent?.(key,sender,response,null,true);}}
  }
- async sendText(cid,jid,message){const s=this.sessions.get(cid);if(s?.status!=='connected'||!s.sock)throw fail(409,'O WhatsApp da empresa está desconectado.');const sent=await s.sock.sendMessage(jid,{text:message});await this.rememberSent(cid,sent?.key?.id);return sent;}
- async sendMedia(cid,jid,file,caption=''){
-  const s=this.sessions.get(cid);if(s?.status!=='connected'||!s.sock)throw fail(409,'O WhatsApp da empresa está desconectado.');
-  const content=file.mime.startsWith('image/')?{image:file.buffer,caption,mimetype:file.mime}:file.mime.startsWith('audio/')?{audio:file.buffer,mimetype:file.mime,ptt:false}:file.mime.startsWith('video/')?{video:file.buffer,caption,mimetype:file.mime}:{document:file.buffer,fileName:file.name,mimetype:file.mime,caption};
-  const sent=await s.sock.sendMessage(jid,content);await this.rememberSent(cid,sent?.key?.id);return sent;
+ socket(key){const s=this.sessions.get(key);if(s?.status!=='connected'||!s.sock)throw fail(409,'Este WhatsApp está desconectado.');return s.sock;}
+ async sendText(key,jid,message,options={}){const sock=this.socket(key);const sent=await sock.sendMessage(jid,{text:message,...(options.forwarded?{contextInfo:{isForwarded:true,forwardingScore:1}}:{})},options.quoted?{quoted:options.quoted}:undefined);await this.rememberSent(key,sent?.key?.id);return sent;}
+ async sendMedia(key,jid,file,caption='',options={}){
+  const sock=this.socket(key);let content;
+  if(file.voice){file={...file,buffer:await voiceToOpus(file.buffer),mime:'audio/ogg'};content={audio:file.buffer,mimetype:'audio/ogg; codecs=opus',ptt:true};}
+  else content=file.sticker&&file.mime==='image/webp'?{sticker:file.buffer}:file.mime.startsWith('image/')?{image:file.buffer,caption,mimetype:file.mime}:file.mime.startsWith('audio/')?{audio:file.buffer,mimetype:file.mime,ptt:false}:file.mime.startsWith('video/')?{video:file.buffer,caption,mimetype:file.mime}:{document:file.buffer,fileName:file.name,mimetype:file.mime,caption};
+  if(options.forwarded)content.contextInfo={isForwarded:true,forwardingScore:1};const sent=await sock.sendMessage(jid,content,options.quoted?{quoted:options.quoted}:undefined);await this.rememberSent(key,sent?.key?.id);return sent;
  }
- async disconnect(cid){const s=this.sessions.get(cid);await this.save(cid,{...await this.config(cid),requested:false});if(s){s.stop=true;clearTimeout(s.timer);await s.sock?.logout().catch(()=>{});s.sock?.end(undefined);}this.sessions.delete(cid);for(const row of await this.store.list('wa-auth',cid))await this.store.remove('wa-auth',row.id,cid);}
- async resetStart(cid){const c=await this.config(cid);if(!c.startedAt)throw fail(409,'Conecte o WhatsApp primeiro.');c.startedAt=new Date().toISOString();await this.save(cid,c);}
- async restore(){for(const config of await this.store.list('wa-config'))if(config.requested){const cid=(await this.store.list('company')).find(c=>lookup(this.secret,'wa-config',c.id)===config.id)?.id;if(cid)this.start(cid).catch(()=>{});}}
+ async editMessage(key,jid,messageKey,text){const sent=await this.socket(key).sendMessage(jid,{text,edit:{...messageKey,remoteJid:jid,fromMe:true}});await this.rememberSent(key,sent?.key?.id);return sent;}
+ async deleteMessage(key,jid,messageKey){const sent=await this.socket(key).sendMessage(jid,{delete:{...messageKey,remoteJid:jid,fromMe:true}});await this.rememberSent(key,sent?.key?.id);return sent;}
+ async react(key,jid,messageKey,text){const sent=await this.socket(key).sendMessage(jid,{react:{text,key:{...messageKey,remoteJid:jid}}});await this.rememberSent(key,sent?.key?.id);return sent;}
+ async read(key,keys){if(keys.length)await this.socket(key).readMessages(keys.slice(-100));}
+ async groups(key){const rows=await this.socket(key).groupFetchAllParticipating();return Object.values(rows).map(g=>({jid:g.id,name:g.subject,participants:g.participants.length}));}
+ async disconnect(key){const s=this.sessions.get(key);await this.save(key,{...await this.config(key),requested:false});if(s){s.stop=true;clearTimeout(s.timer);await s.sock?.logout().catch(()=>{});s.sock?.end(undefined);}this.sessions.delete(key);await this.clearAuth(key);}
+ async resetStart(key){const c=await this.config(key);if(!c.startedAt)throw fail(409,'Conecte o WhatsApp primeiro.');c.startedAt=new Date().toISOString();await this.save(key,c);}
+ async restore(){const companies=await this.store.list('company');for(const c of await this.store.list('wa-config'))if(c.requested){const key=c.connectionId||companies.find(x=>lookup(this.secret,'wa-config',x.id)===c.id)?.id;if(key&&(!this.resolveContext||await this.resolveContext(key)))this.start(key).catch(()=>{});}}
  async close(){for(const s of this.sessions.values()){s.stop=true;clearTimeout(s.timer);s.sock?.end(undefined);}}
 }

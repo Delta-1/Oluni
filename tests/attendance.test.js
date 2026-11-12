@@ -57,13 +57,12 @@ test('documentos são privados, validados e deduplicados por colaborador',async 
  assert.equal((await f.request('/documents/'+r.body.id+'/file',undefined,f.employee.token)).body.data,pdf.data);
  assert.equal((await f.request('/documents',{...pdf,data:Buffer.from('not pdf').toString('base64')},f.employee.token)).status,400);
 });
-test('WhatsApp verifica telefone antes da recuperação, limita código e revoga sessões',async t=>{
+test('WhatsApp recupera senha sem verificação inicial, valida código e revoga sessões',async t=>{
  const f=await fixture(t),email=f.employee.user.email;
  const noAccount=await f.request('/auth/password/request',{email:'missing@example.com'});
- const notVerified=await f.request('/auth/password/request',{email});assert.deepEqual(notVerified.body,noAccount.body);assert.equal(f.sent.length,0);
- await f.request('/profile/whatsapp/request',{},f.employee.token);assert.equal(f.sent.length,1);const code=f.sent[0].message.match(/\b\d{6}\b/)[0];
- assert.equal((await f.request('/profile/whatsapp/verify',{code},f.employee.token)).status,200);
- await f.request('/auth/password/request',{email});assert.equal(f.sent.length,2);const reset=f.sent[1].message.match(/\b\d{6}\b/)[0];
+ const registered=await f.request('/auth/password/request',{email});assert.deepEqual(registered.body,noAccount.body);assert.equal(f.sent.length,1);
+ assert.equal((await f.store.get('user',f.employee.user.id)).phoneVerified,undefined);
+ const reset=f.sent[0].message.match(/\b\d{6}\b/)[0];
  assert.equal((await f.request('/auth/password/reset',{email,code:'000000',password:'new-password123'})).status,400);
  assert.equal((await f.request('/auth/password/reset',{email,code:reset,password:'new-password123'})).status,200);
  assert.equal((await f.request('/bootstrap',undefined,f.employee.token)).status,401);

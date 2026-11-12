@@ -38,7 +38,7 @@ npm run build
 npm start
 ```
 
-O ambiente de desenvolvimento usa registros sintéticos e armazenamento temporário. Produção exige Supabase real. O Railway serve a interface e a API no mesmo processo; mantém o WhatsApp conectado por empresa.
+O ambiente de desenvolvimento usa registros sintéticos e armazenamento temporário. Produção exige Supabase real. O Railway serve a interface e a API no mesmo processo; mantém conexões de WhatsApp separadas por número/setor.
 
 ## Configuração
 
@@ -68,3 +68,6 @@ Na versão 2.2, o RH cria setores, gera convites com setor predefinido, escolhe 
 A versão 2.3 adiciona foto de perfil sem aprovação, logo da empresa, crachá individual com consulta online e impressão em lote. Há 40 testes de API, com isolamento entre empresas e revogação dos links de crachá.
 
 A versão 2.4 traz modelos geométricos, cores e fundo próprio para crachás, com prévia, além de configuração independente da IA do WhatsApp. 46 testes cobrem os fluxos e o isolamento de dados.
+
+
+A versão 3.0 adiciona telefone com país e bandeira, reconhecimento pelo número cadastrado sem verificação inicial, conexões/equipes por setor, onboarding de WhatsApp e instalação, pastas pessoais, quadros de post-its e atendimento em Kanban. O chat inclui citações, encaminhamento, reações, edição, exclusão, voz com revisão, figurinhas WebP, grupos e etiquetas. Crachás têm dimensões, folhas, margens, fontes e estilos configuráveis. Veja [a operação da versão 3](docs/OLUNI_V3.md).

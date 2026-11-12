@@ -62,7 +62,7 @@ export function summarize(entries,company,from,to,users=[]) {
       expectedMinutes:expected,balanceMinutes:complete&&!presence?workedMinutes-expected:null};
   }).sort((a,b)=>b.day.localeCompare(a.day)||a.name.localeCompare(b.name));
 }
-export function installAttendance({route,store,secret,admin,companyFor,gateway,reply}) {
+export function installAttendance({route,store,secret,admin,companyFor,gateway,connectionFor=async u=>u.companyId,reply}) {
   const forUser=async u=>ensureEmployeeCode(store,secret,u);
   const mine=async(user)=>{
     const c=await companyFor(user.companyId), today=localDay(new Date(),companySettings(c).timezone);
@@ -168,16 +168,16 @@ export function installAttendance({route,store,secret,admin,companyFor,gateway,r
     const r=await store.get('hr-request',req.params.id,req.user.companyId),body=text(req.body.text,1,2000);
     if(!r)throw fail(404,'Solicitação não encontrada.');
     const u=await store.get('user',r.owner,req.user.companyId);
-    if(!u?.active||!u.whatsappJid||!u.whatsappConsent)throw fail(409,'Este colaborador não está com o WhatsApp autorizado.');
+    if(!u?.active||!u.phone||!u.whatsappConsent)throw fail(409,'Este colaborador não está com o WhatsApp autorizado.');
     if(!gateway?.sendText)throw fail(409,'WhatsApp indisponível.');
-    await gateway.sendText(req.user.companyId,u.whatsappJid,'RH: '+body);
+    await gateway.sendText(r.channelId||await connectionFor(u),u.whatsappJid||u.phone+'@s.whatsapp.net','RH: '+body);
     r.status='answered';r.reply=body;r.answeredAt=new Date().toISOString();
     await store.put('hr-request',req.user.companyId,r,r.id);res.json({ok:true});
   });
   return {mine,punch,saveDocument};
 }
 
-export function installPublicAttendance({route,store,secret,gateway,limiter,companyFor,getAttendance}) {
+export function installPublicAttendance({route,store,secret,gateway,limiter,companyFor,connectionFor=async u=>u.companyId,getAttendance}) {
   route('post','/public/access',limiter(30,60000),async(req,res)=>{
     const kind=req.body.kind==='totem'?'totem':'invite',c=await resolveAccess(store,secret,req.body.token,kind);
     res.json({name:c.name,timezone:companySettings(c).timezone,department:c.invitedDepartment||null,attendanceMethod:c.attendanceMethod||'code'});
@@ -196,12 +196,11 @@ export function installPublicAttendance({route,store,secret,gateway,limiter,comp
   const sendOTP=async(purpose,user)=>serial('otp:'+purpose+':'+user.email,async()=>{
     const id=otpId(purpose,user.email),old=await store.get('otp',id,user.companyId);
     if(old&&Date.parse(old.expiresAt)>Date.now())return;
-    if(!gateway?.sendText||(await gateway.status(user.companyId)).status!=='connected')return;
-    if(purpose==='reset'&&!user.phoneVerified)return;
+    const connection=await connectionFor(user);if(!gateway?.sendText||(await gateway.status(connection)).status!=='connected')return;
     const code=String(randomInt(100000,1000000));
     const saved={owner:user.id,companyId:user.companyId,phone:user.phone,hash:lookup(secret,'otp-value',purpose,user.id,code),attempts:0,expiresAt:new Date(Date.now()+10*60000).toISOString()};
     await store.put('otp',user.companyId,saved,id);
-    try{await gateway.sendText(user.companyId,user.phone+'@s.whatsapp.net',`Oluni: seu código para ${purpose==='reset'?'redefinir a senha':'verificar o WhatsApp'} é ${code}. Válido por 10 minutos. Não compartilhe.`);}
+    try{await gateway.sendText(connection,user.phone+'@s.whatsapp.net',`Oluni: seu código para ${purpose==='reset'?'redefinir a senha':'verificar o WhatsApp'} é ${code}. Válido por 10 minutos. Não compartilhe.`);}
     catch{await store.remove('otp',id,user.companyId);}
   });
   const consume=async(purpose,email,code,fn)=>serial('otp:'+purpose+':'+email,async()=>{
