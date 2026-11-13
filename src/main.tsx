@@ -11,6 +11,7 @@ import {AppErrorBoundary} from './AppErrorBoundary';
 import OluniApp from './OluniApp';
 import {AppUpdateNotice} from './app-updates';
 import './readability.css';
+import './workspace-layout.css';
 import './whatsapp-layout.css';
 type Any=Record<string,any>;
 const moods=[{score:1,face:'😔',name:'Muito mal',color:'#c98c7c'},{score:2,face:'🙁',name:'Mal',color:'#d5ae72'},{score:3,face:'😐',name:'Regular',color:'#d5c581'},{score:4,face:'🙂',name:'Bem',color:'#91b997'},{score:5,face:'😄',name:'Muito bem',color:'#5c9b81'}];
