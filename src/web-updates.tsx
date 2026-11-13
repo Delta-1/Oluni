@@ -2,7 +2,7 @@ import {useEffect,useRef,useState} from 'react';
 import {Capacitor} from '@capacitor/core';
 import {RefreshCw,X} from 'lucide-react';
 import {api} from './api';
-const version='3.2.0';
+const version='3.2.1';
 export function WebUpdates(){
  const [available,setAvailable]=useState(''),last=useRef(0);
  useEffect(()=>{if(Capacitor.isNativePlatform()||import.meta.env.DEV)return;let alive=true;

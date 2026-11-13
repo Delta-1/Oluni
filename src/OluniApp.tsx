@@ -1,3 +1,4 @@
+import {BrandLogo} from './brand';
 import {BusinessReports} from './business-reports';
 import React,{useCallback,useEffect,useRef,useState} from 'react';
 import {Clock3,ArrowRight,ArrowUpRight,Users,BarChart3,MessageCircle,Settings2,LogOut,Plus,Copy,Check,Eye,EyeOff,FileText,Heart,ChevronLeft,Download,Monitor,RefreshCw,ShieldCheck,Menu,X,UserRound,Search,ClipboardCheck,QrCode,IdCard} from 'lucide-react';
@@ -24,7 +25,7 @@ const time=(v:string,tz='America/Rio_Branco')=>new Date(v).toLocaleTimeString('p
 function useOnline(){const [online,setOnline]=useState(navigator.onLine);useEffect(()=>{const sync=()=>setOnline(navigator.onLine);window.addEventListener('online',sync);window.addEventListener('offline',sync);return()=>{window.removeEventListener('online',sync);window.removeEventListener('offline',sync);};},[]);return online;}
 const isoDay=()=>{const parts=new Intl.DateTimeFormat('en',{timeZone:'America/Rio_Branco',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());return ['year','month','day'].map(k=>parts.find(p=>p.type===k)!.value).join('-');};
 const links=(value:string,kind:string)=>{const u=new URL(location.href);u.search='';u.hash='';u.searchParams.set(kind,value);return u.href;};
-function Brand(){return <a className="pn-brand" href={location.pathname}><span><Clock3 size={23}/></span><b>oluni</b></a>}
+function Brand({loading=false}:{loading?:boolean}){return <BrandLogo loading={loading}/>;}
 function Alert({children}:{children?:React.ReactNode}){return children?<p className="pn-alert" role="alert">{children}</p>:null;}
 function Password({label='Senha',name='password',newPassword=false}:{label?:string,name?:string,newPassword?:boolean}){const [show,setShow]=useState(false);return <label>{label}<span className="pn-password"><input name={name} type={show?'text':'password'} autoComplete={newPassword?'new-password':'current-password'} minLength={newPassword?6:1} maxLength={200} placeholder={newPassword?'Pelo menos 6 caracteres':'Sua senha'} required/><button type="button" aria-label={show?'Ocultar senha':'Mostrar senha'} onClick={()=>setShow(!show)}>{show?<EyeOff size={18}/>:<Eye size={18}/>}</button></span></label>}
 function Clock({timezone='America/Rio_Branco'}:{timezone?:string}){const [now,setNow]=useState(new Date());useEffect(()=>{const t=setInterval(()=>setNow(new Date()),1000);return()=>clearInterval(t);},[]);return <><strong className="pn-clock">{now.toLocaleTimeString('pt-BR',{timeZone:timezone,hour:'2-digit',minute:'2-digit',second:'2-digit'})}</strong><span className="pn-clock-date">{now.toLocaleDateString('pt-BR',{timeZone:timezone,weekday:'long',day:'numeric',month:'long'})}</span></>}
@@ -121,7 +122,7 @@ export default function PontoApp({renderLegacy}:{renderLegacy:Legacy}){
   if(publicBadge)return <PublicBadge token={publicBadge}/>;
   if(new URLSearchParams(location.search).get('instalar')==='1')return <div className="pn ol-install-page"><Brand/><InstallApp/><a className="pn-button secondary" href={location.pathname}>Acessar minha conta</a></div>;
   if(totem)return <div className="pn"><Totem token={totem}/></div>;
-  if(loading)return <div className="pn pn-loading"><Brand/><p>Preparando seu espaço…</p></div>;
+  if(loading)return <div className="pn pn-loading"><Brand loading/><p>Preparando seu espaço…</p></div>;
   if(!data)return <div className="pn">{error&&<div className="pn-global-error">{error}<button onClick={()=>{setSession('');setError('');}}>Voltar ao login</button></div>}<SignIn onEnter={()=>{setLoading(true);setPage('overview');reload();}}/></div>;
   if(data.onboardingRequired)return <div className="pn"><Onboarding onDone={reload}/></div>;
   const admin=data.user.role==='admin',current=page==='overview'&&!admin?'clock':page;
