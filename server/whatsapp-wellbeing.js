@@ -32,7 +32,7 @@ export function installWellbeing({route,store,secret,admin,gateway,configFor,cha
   if(!u)return {handled:false};const cid=u.companyId,command=message.trim().toUpperCase();
   if(['PARAR BEM-ESTAR','PARAR BEM ESTAR'].includes(command)){const fresh=await store.get('user',u.id,cid);fresh.wellbeingWhatsappConsent=false;await store.put('user',cid,fresh,u.id);await stop(cid,u.id,key);return {handled:true,reply:'Convites de bem-estar desativados. Os serviços da empresa continuam disponíveis. Você pode reativar no perfil.'};}
   const inSession=await active(cid,u.id,key),start=['BEM-ESTAR','BEM ESTAR','CONVERSAR'].includes(command);
-  if(['MENU','INICIO','INÍCIO','1','PONTO','MEU PONTO','2','ATESTADO','ENVIAR ATESTADO','3','RH','FALAR COM O RH','PARAR','SAIR','STOP'].includes(command)){if(inSession)await stop(cid,u.id,key);return {handled:false};}
+  if(['MENU','INICIO','INÍCIO','1','PONTO','MEU PONTO','2','ATESTADO','ENVIAR ATESTADO','3','4','DOCUMENTOS','PENDÊNCIAS','RH','FALAR COM O RH','PARAR','SAIR','STOP'].includes(command)){if(inSession)await stop(cid,u.id,key);return {handled:false};}
   if(/^HUMOR\s+[1-5]$/.test(command))return {handled:false,private:true};
   if(!start&&!inSession)return {handled:false};
   if(!eligible(u)){await stop(cid,u.id,key);return {handled:true,reply:'Autorize os convites de bem-estar no perfil para participar pelo número cadastrado. MENU abre os serviços da empresa.'};}

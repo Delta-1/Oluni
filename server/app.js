@@ -1,3 +1,6 @@
+import {createPeoplePermissions} from './people-permissions.js';
+import {installEmployeeEnrollment} from './employee-enrollment.js';
+import {installServiceMenus} from './whatsapp-menus.js';
 import {documentError,documentType,normalizeDocument} from '../src/company-document.js';
 import {installBusinessReports} from './business-reports.js';
 import {personalData} from './personal-data.js';
@@ -61,13 +64,16 @@ export function createApp({store,secret,gateway=null,ai=companion,whatsappAI,wel
  app.use('/api',wrap(auth),limiter(600));authenticatedRoutes=true;
  badges.installAuthenticated(admin);channels.install(route,admin);
  installBusinessReports({route,store,admin,companyFor,channels});
- installOnboarding({route,store,admin,channels,gateway,platform});installBoards({route,store,secret});installEmployeeFiles({route,store});
+ installOnboarding({route,store,admin,channels,gateway,platform});installBoards({route,store,secret});
+ const peoplePermissions=createPeoplePermissions({route,store,secret,admin}),files=installEmployeeFiles({route,store,permissions:peoplePermissions});
+ const enrollment=installEmployeeEnrollment({route,store,secret,admin,permissions:peoplePermissions,channels,files,gateway});
  const waAI=installWhatsAppAI({route,store,secret,admin,settingsFor,companyFor,platform,channels,ai:whatsappAI});
- const hub=installWhatsAppInbox({route,store,secret,admin,gateway,configFor:waAI.configFor,channels,wellbeingAI,saveDocument:(u,f)=>attendance.saveDocument(u,f,'whatsapp')});app.locals.whatsappHub=hub;
+ const menus=installServiceMenus({route,store,secret,admin,channels,assistants:waAI,gateway});
+ const hub=installWhatsAppInbox({route,store,secret,admin,gateway,configFor:waAI.configFor,channels,wellbeingAI,enrollment,menus,employeeFiles:files,peoplePermissions,saveDocument:(u,f)=>attendance.saveDocument(u,f,'whatsapp')});app.locals.whatsappHub=hub;
  route('post','/profile/whatsapp/request',async(req,res)=>{if(!gateway?.sendText||(await gateway.status(req.user.companyId)).status!=='connected')throw fail(409,'O RH precisa conectar o WhatsApp da empresa primeiro.');await verification.sendOTP('verify',req.user);res.json({ok:true});});
  route('post','/profile/whatsapp/verify',async(req,res)=>{await verification.consume('verify',req.user.email,req.body.code,async u=>{if((await store.list('user',u.companyId)).some(other=>other.id!==u.id&&other.whatsappJid===u.phone+'@s.whatsapp.net'))throw fail(409,'Este WhatsApp já está vinculado a outra conta. Procure o RH.');u.phoneVerified=true;u.whatsappConsent=true;u.whatsappJid=u.phone+'@s.whatsapp.net';await store.put('user',u.companyId,u,u.id);});res.json({ok:true});});
  route('post','/auth/logout',async(req,res)=>{await store.remove('session',req.sessionId,req.user.companyId);res.json({ok:true});});
- route('get','/bootstrap',async(req,res)=>{const u=await ensureEmployeeCode(store,secret,req.user),c=await companyFor(u.companyId);const own=await store.list('checkin',c.id,{owner:u.id,limit:400});const settings=await settingsFor(c.id);res.json({user:publicUser(u),company:publicCompany(c),checkins:own.sort((a,b)=>b.day.localeCompare(a.day)),aiAvailable:!!(settings?.enabled&&settings?.apiKey),platform:platform.safe(),onboardingRequired:req.user.role==='admin'?!c.onboarding?.completed:!u.onboarding?.completed});});
+ route('get','/bootstrap',async(req,res)=>{const u=await ensureEmployeeCode(store,secret,req.user),c=await companyFor(u.companyId);const own=await store.list('checkin',c.id,{owner:u.id,limit:400});const settings=await settingsFor(c.id);res.json({user:{...publicUser(u),...await peoplePermissions.caps(u),whatsappAgent:(await channels.authorized(u)).length>0},company:publicCompany(c),checkins:own.sort((a,b)=>b.day.localeCompare(a.day)),aiAvailable:!!(settings?.enabled&&settings?.apiKey),platform:platform.safe(),onboardingRequired:req.user.role==='admin'?!c.onboarding?.completed:!u.onboarding?.completed});});
  route('patch','/profile',async(req,res)=>attendanceSerial('user-edit:'+req.user.id,async()=>{const current=await store.get('user',req.user.id,req.user.companyId),u=await personalData(store,current,req.body);for(const k of ['shareMood','aiConsent','whatsappConsent','wellbeingWhatsappConsent'])if(req.body[k]!==undefined)u[k]=req.body[k]===true;await store.put('user',u.companyId,u,u.id);if(current.phone!==u.phone||!u.whatsappConsent||!u.wellbeingWhatsappConsent||!u.aiConsent)await hub.wellbeing.stop(u.companyId,u.id);res.json(publicUser(u));}));
  route('post','/auth/password',async(req,res)=>{const u=req.user;if(!await verifyPassword(req.body.currentPassword,u.passwordHash))throw fail(400,'Senha atual incorreta.');u.passwordHash=await hashPassword(req.body.password);await store.put('user',u.companyId,u,u.id);for(const s of await store.list('session',u.companyId))if(s.userId===u.id&&s.id!==req.sessionId)await store.remove('session',s.id,u.companyId);res.json({ok:true});});
  route('post','/checkins',limiter(20,60000),async(req,res)=>{const mood=Number(req.body.mood);if(!Number.isInteger(mood)||mood<1||mood>5)throw fail(400,'Escolha como você está se sentindo.');const u=req.user,when=day(),id=lookup(secret,'checkin',u.id,when);const entry={owner:u.id,day:when,mood,note:text(req.body.note||'',0,1500),shared:req.body.shared===true,source:'app',at:new Date().toISOString()};await store.put('checkin',u.companyId,entry,id);res.json({...entry,id});});
@@ -93,13 +99,14 @@ export function createApp({store,secret,gateway=null,ai=companion,whatsappAI,wel
  route('post','/admin/whatsapp/connect',admin,async(req,res)=>{if(!gateway)throw fail(503,'Integração indisponível.');await gateway.connect(req.user.companyId);res.json({ok:true});});
  route('post','/admin/whatsapp/disconnect',admin,async(req,res)=>{if(!gateway)throw fail(503,'Integração indisponível.');await gateway.disconnect(req.user.companyId);res.json({ok:true});});
  route('post','/admin/whatsapp/reset-start',admin,async(req,res)=>{await gateway.resetStart(req.user.companyId);res.json({ok:true});});
- attendance=installAttendance({route,store,secret,admin,companyFor,gateway,connectionFor:channels.connectionFor,reply});
+ attendance=installAttendance({route,store,secret,admin,companyFor,gateway,connectionFor:channels.connectionFor,peoplePermissions,reply});
  if(gateway)gateway.canReceiveFile=async(key,jid)=>/^\d[\d-]{5,30}@(s\.whatsapp\.net|lid|g\.us)$/.test(jid);
  if(gateway)gateway.onMessage=async(cid,jid,message,attachment=null,meta={})=>{
-  const users=await store.list('user',cid),channelId=meta.channelId||cid;
+  const channelId=meta.channelId||cid;
   let u=await channels.member(cid,jid,channelId);if(u&&!u.whatsappConsent)u=null;
   const link=/^VINCULAR\s+([A-F0-9]{12})$/i.exec(message.trim());
   if(link){
+   const users=await store.list('user',cid);
    const id=lookup(secret,'wa-link',cid,link[1].toUpperCase()),entry=await store.get('wa-link',id,cid);
    if(!entry||Date.parse(entry.expiresAt)<Date.now())return null;
    const target=await store.get('user',entry.userId,cid);
@@ -112,37 +119,30 @@ export function createApp({store,secret,gateway=null,ai=companion,whatsappAI,wel
   }
   if(!u)return null;
   if(/^(PARAR|SAIR|STOP)$/i.test(message.trim())){u.whatsappConsent=false;await store.put('user',cid,u,u.id);await waAI.clear(cid,u.id,channelId);await store.remove('bot-state',lookup(secret,'bot-state',cid,u.id,...(channelId===cid?[]:[channelId])),cid);return 'Atendimento por WhatsApp desativado. Você pode reativar pelo perfil no Oluni.';}
-  const c=await companyFor(cid),attendanceState=await attendance.mine(u),settings=attendanceState.settings;
-  if(attachment){
-   try{await attendance.saveDocument(u,attachment,'whatsapp');return 'Recebemos seu documento e colocamos na sua pasta. O RH fará a análise. Você pode acompanhar pelo aplicativo.';}
-   catch(e){return e.status?e.message:'Não foi possível salvar o documento agora. Tente pelo aplicativo.';}
-  }
-  const command=message.trim().toUpperCase();
-  if(['1','PONTO','MEU PONTO'].includes(command)){
-   const state=await attendance.mine(u);
+  const c=await companyFor(cid),attendanceState=await attendance.mine(u),settings=attendanceState.settings,command=message.trim().toUpperCase(),stateId=lookup(secret,'bot-state',cid,u.id,...(channelId===cid?[]:[channelId]));
+  let state=await store.get('bot-state',stateId,cid);
+  if(['PONTO','MEU PONTO'].includes(command)||/\b(?:MEU|CONSULTAR|VER)\b.*\bPONTO\b/i.test(command)){
    const labels={presence:'Presença',entry:'Entrada',break_start:'Início do intervalo',break_end:'Fim do intervalo',exit:'Saída'};
-   return 'Seu ponto de '+state.shiftDay+':\n'+(state.entries.map(e=>labels[e.event]+' — '+new Date(e.at).toLocaleTimeString('pt-BR',{timeZone:settings.timezone})).join('\n')||'Nenhum registro hoje.')+'\nPara bater o ponto, abra o aplicativo ou use o totem da empresa.';
+   return 'Seu ponto de '+attendanceState.shiftDay+':\n'+(attendanceState.entries.map(e=>labels[e.event]+' — '+new Date(e.at).toLocaleTimeString('pt-BR',{timeZone:settings.timezone})).join('\n')||'Nenhum registro hoje.')+'\nPara registrar o ponto com as regras da empresa, abra o aplicativo ou use o totem.';
   }
-  if(['2','ATESTADO','ENVIAR ATESTADO'].includes(command))return 'Envie seu atestado como PDF, JPG ou PNG, com até 5 MB. Ele será salvo na sua pasta para o RH analisar. Não é necessário informar sua senha.';
-  if(['3','RH','FALAR COM O RH'].includes(command)){await store.put('hr-request',cid,{owner:u.id,channelId,text:'Solicitou atendimento pelo WhatsApp',at:new Date().toISOString(),status:'pending'});return 'Sua solicitação foi encaminhada ao RH. A equipe poderá responder por este WhatsApp.';}
-  const mood=/^HUMOR\s+([1-5])$/i.exec(message.trim());
-  if(mood){await store.put('checkin',cid,{owner:u.id,day:day(),mood:Number(mood[1]),note:'',shared:u.shareMood===true,source:'whatsapp',at:new Date().toISOString()},lookup(secret,'checkin',u.id,day()));return 'Seu humor foi registrado conforme suas preferências de compartilhamento.';}
-  const stateId=lookup(secret,'bot-state',cid,u.id,...(channelId===cid?[]:[channelId]));
-  if(['MENU','INICIO','INÍCIO','OI','OLA','OLÁ'].includes(command)){await store.remove('bot-state',stateId,cid);await waAI.clear(cid,u.id,channelId);return settings.greeting+'\n\n'+settings.menu;}
-  const aiSettings=await waAI.configFor(cid,channelId);
-  if(command==='4'){
-   if(!u.aiConsent)return 'Autorize o uso da IA em Meu perfil no Oluni. O menu e os documentos continuam disponíveis. Envie MENU para voltar.';
-   if(!aiSettings.enabled||!aiSettings.apiKey)return 'O RH precisa configurar a chave de API e ativar a IA do WhatsApp. Envie MENU para usar os serviços automáticos.';
-   await waAI.clear(cid,u.id,channelId);await store.put('bot-state',cid,{owner:u.id,aiUntil:new Date(Date.now()+15*60000).toISOString()},stateId);
-   return `Você está com ${aiSettings.botName||'a assistente do RH'}, uma IA. Como posso ajudar com os serviços da empresa? Envie MENU para voltar.`;
+  const mood=/^HUMOR\s+([1-5])$/i.exec(message.trim());if(mood){await store.put('checkin',cid,{owner:u.id,day:day(),mood:Number(mood[1]),note:'',shared:u.shareMood===true,source:'whatsapp',at:new Date().toISOString()},lookup(secret,'checkin',u.id,day()));return 'Seu humor foi registrado conforme suas preferências de compartilhamento.';}
+  if(['MENU','INICIO','INÍCIO'].includes(command)){await waAI.clear(cid,u.id,channelId);await store.put('bot-state',cid,{owner:u.id,menuShown:true},stateId);return (await menus.render(cid,channelId,'employee')).text;}
+  const requested=meta.assistantId||state?.assistantId,aiSettings=await waAI.configFor(cid,channelId,requested);
+  if(command==='ACEITO IA'&&state?.consentPending){u.aiConsent=true;u.aiConsentAt=new Date().toISOString();await store.put('user',cid,u,u.id);state={owner:u.id,assistantId:state.assistantId,aiUntil:new Date(Date.now()+24*3600000).toISOString(),menuShown:true};await store.put('bot-state',cid,state,stateId);return 'Autorização registrada. Como posso ajudar com seu trabalho?';}
+  if(command==='4'||meta.startAssistant){
+   if(!aiSettings.enabled||!aiSettings.apiKey)return 'A administração precisa ativar a integração de IA. Envie MENU para usar os serviços sem IA.';
+   if(!u.aiConsent){await store.put('bot-state',cid,{owner:u.id,assistantId:aiSettings.assistantId,consentPending:true,menuShown:true},stateId);return 'Autorize a conversa com IA: suas mensagens serão enviadas ao provedor configurado pela empresa para responder suas dúvidas. Envie ACEITO IA para começar, ou MENU para voltar. Você também pode autorizar em Meu perfil no Oluni.';}
+   await waAI.clear(cid,u.id,channelId);await store.put('bot-state',cid,{owner:u.id,assistantId:aiSettings.assistantId,aiUntil:new Date(Date.now()+24*3600000).toISOString(),menuShown:true},stateId);
+   return 'Você está com '+aiSettings.botName+', uma IA da equipe. Como posso ajudar?';
   }
-  const state=await store.get('bot-state',stateId,cid),inSession=state?.aiUntil&&Date.parse(state.aiUntil)>Date.now();
-  if(inSession||(aiSettings.enabled&&aiSettings.apiKey&&aiSettings.mode==='automatic')){
-   if(!u.aiConsent)return 'Autorize a IA no seu perfil para conversar. Envie MENU para voltar aos serviços.';
-   try{return await waAI.reply(u,message,{channelId,companyName:c.name,employeeName:u.name,employeeCode:u.employeeCode,shiftDay:attendanceState.shiftDay,timezone:settings.timezone,entries:attendanceState.entries.map(e=>({event:e.event,at:e.at})),menu:settings.menu});}
-   catch{return 'A assistente está indisponível. Envie MENU para continuar com os serviços automáticos.';}
+  const inSession=state?.aiUntil&&Date.parse(state.aiUntil)>Date.now();
+  if(!state&&/^(?:OI|OL[AÁ]|BOM DIA|BOA TARDE|BOA NOITE)[!. ]*$/i.test(message.trim())){const menu=await menus.render(cid,channelId,'employee');if(menu.text){await store.put('bot-state',cid,{owner:u.id,menuShown:true},stateId);return menu.text;}}
+  if(inSession||aiSettings.enabled&&aiSettings.apiKey&&aiSettings.mode==='automatic'){
+   if(!u.aiConsent){await store.put('bot-state',cid,{owner:u.id,assistantId:aiSettings.assistantId,consentPending:true,menuShown:true},stateId);return 'Para conversar com a IA sobre o trabalho, autorize o envio dessas mensagens ao provedor de IA da empresa: envie ACEITO IA. MENU volta aos serviços, que funcionam sem IA.';}
+   try{const result=await waAI.reply(u,message,{assistantId:aiSettings.assistantId,channelId,companyName:c.name,employeeName:u.name,employeeCode:u.employeeCode,shiftDay:attendanceState.shiftDay,timezone:settings.timezone,entries:attendanceState.entries.map(e=>({event:e.event,at:e.at}))});await store.put('bot-state',cid,{owner:u.id,assistantId:aiSettings.assistantId,aiUntil:new Date(Date.now()+24*3600000).toISOString(),menuShown:true},stateId);return result;}catch{return 'A assistente está indisponível agora. Você pode enviar PONTO, ATESTADO ou RH para continuar com os serviços.';}
   }
-  return settings.greeting+'\n\n'+settings.menu;
+  if(!state){await store.put('bot-state',cid,{owner:u.id,menuShown:true},stateId);return (await menus.render(cid,channelId,'employee')).text;}
+  return 'Para conversar com a assistente, envie 4. MENU mostra os serviços. PONTO consulta seu dia; ATESTADO inicia o envio de um documento.';
  };
 
 

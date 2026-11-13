@@ -69,11 +69,11 @@ test('WhatsApp recupera senha sem verificação inicial, valida código e revoga
  assert.equal((await f.request('/auth/password/reset',{email,code:reset,password:'another-password123'})).status,400);
  assert.equal((await f.request('/auth/login',{email,password:'new-password123'})).status,200);
 });
-test('bot atende menu e recebe atestado sem IA, com identidade verificada',async t=>{
+test('bot recebe atestado sem IA pelo telefone vinculado e sem pedir código novamente',async t=>{
  const f=await fixture(t),u=await f.store.get('user',f.employee.user.id);u.whatsappJid=u.phone+'@s.whatsapp.net';u.whatsappConsent=true;await f.store.put('user',u.companyId,u,u.id);
  assert.match(await f.gateway.onMessage(u.companyId,u.whatsappJid,'MENU'),/Meu ponto/);
  assert.match(await f.gateway.onMessage(u.companyId,u.whatsappJid,'2'),/PDF/);
- assert.match(await f.gateway.onMessage(u.companyId,u.whatsappJid,u.employeeCode),/Identificação confirmada/);
+ assert.match(await f.gateway.onMessage(u.companyId,u.whatsappJid,'Posso enviar agora?'),/Envie seu atestado/);
  const result=await f.gateway.onMessage(u.companyId,u.whatsappJid,'',{mime:'application/pdf',name:'exemplo.pdf',buffer:Buffer.from('%PDF-1.4\nexample')});assert.match(result,/Recebemos/);
  assert.equal((await f.store.list('document',u.companyId))[0].owner,u.id);
  assert.equal(await f.gateway.onMessage('other-company',u.whatsappJid,'MENU'),null);

@@ -52,7 +52,8 @@ test('menu e documentos independem de IA; conversa do bot exige consentimento e 
  assert.match(await f.gateway.onMessage(cid,jid,'MENU'),/Meu ponto/);assert.match(await f.gateway.onMessage(cid,jid,'2'),/PDF/);assert.equal(f.calls.length,0);
  await f.req('/admin/whatsapp/ai',config,f.admin.token);assert.match(await f.gateway.onMessage(cid,jid,'4'),/Autorize/);
  await f.req('/profile',{aiConsent:true},f.employee.token,'PATCH');await f.req('/chat',{text:'Mensagem privada de bem-estar'},f.employee.token);
- assert.match(await f.gateway.onMessage(cid,jid,'4'),/uma IA/);assert.match(await f.gateway.onMessage(cid,jid,'Como envio um atestado?'),/IA do RH/);assert.equal(f.calls.length,1);
+ assert.match(await f.gateway.onMessage(cid,jid,'4'),/uma IA/);assert.match(await f.gateway.onMessage(cid,jid,'Qual é o horário de atendimento?'),/IA do RH/);assert.equal(f.calls.length,1);
+ assert.match(await f.gateway.onMessage(cid,jid,'Como envio um atestado?'),/PDF/);assert.equal(f.calls.length,1);
  assert.equal(JSON.stringify(f.calls[0].history).includes('bem-estar'),false);assert.equal(f.calls[0].context.companyName,'Empresa Exemplo');assert.equal(f.calls[0].context.employeeName,u.name);
  await f.gateway.onMessage(cid,jid,'MENU');assert.equal((await f.store.list('wa-ai-conversation',cid)).length,0);assert.equal((await f.store.list('chat',cid)).length,2);
  await f.gateway.onMessage(cid,jid,'PARAR');assert.equal(await f.gateway.onMessage(cid,jid,'4'),null);
@@ -60,11 +61,11 @@ test('menu e documentos independem de IA; conversa do bot exige consentimento e 
 test('modo automático atende perguntas livres e mantém comandos determinísticos',async t=>{
  const f=await fixture(t),cid=f.employee.user.companyId,u=await f.store.get('user',f.employee.user.id,cid),jid=u.phone+'@s.whatsapp.net';Object.assign(u,{whatsappJid:jid,whatsappConsent:true,aiConsent:true});await f.store.put('user',cid,u,u.id);
  await f.req('/admin/whatsapp/ai',{...config,mode:'automatic'},f.admin.token);assert.match(await f.gateway.onMessage(cid,jid,'Preciso de ajuda com meus documentos'),/IA do RH/);assert.equal(f.calls.length,1);
- assert.match(await f.gateway.onMessage(cid,jid,'2'),/PDF/);assert.equal(f.calls.length,1);
+ assert.match(await f.gateway.onMessage(cid,jid,'ATESTADO'),/PDF/);assert.equal(f.calls.length,1);
  await f.req('/admin/whatsapp/ai',{...config,apiKey:undefined,enabled:false},f.admin.token);await f.gateway.onMessage(cid,jid,'Outra pergunta');assert.equal(f.calls.length,1);
 });
 test('transporte envia orientações próprias do RH e preserva a persona privada da Flora',async()=>{
  const calls=[],fetcher=async(url,options)=>{calls.push({url,options,body:JSON.parse(options.body)});return {ok:true,json:async()=>({choices:[{message:{content:'Resposta de teste.'}}]})};};
  const settings={...config,provider:'openai'};await hrAssistant(settings,[{role:'user',text:'Como envio o documento?'}],{document:'11222333000181',companyName:'Empresa Exemplo'},fetcher);await companion(settings,[{role:'user',text:'Como me sinto hoje'}],fetcher);
- assert.match(calls[0].body.messages[0].content,/assistente virtual de IA do RH/);assert.match(calls[1].body.messages[0].content,/Flora/);assert.equal(calls[0].options.headers.Authorization,'Bearer '+config.apiKey);assert.equal(calls[0].body.messages[0].content.includes(config.apiKey),false);
+ assert.match(calls[0].body.messages[0].content,/assistente virtual de IA da empresa/);assert.match(calls[1].body.messages[0].content,/Flora/);assert.equal(calls[0].options.headers.Authorization,'Bearer '+config.apiKey);assert.equal(calls[0].body.messages[0].content.includes(config.apiKey),false);
 });

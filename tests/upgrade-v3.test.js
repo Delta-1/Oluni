@@ -22,14 +22,14 @@ test('telefone cadastrado reconhece o colaborador sem OTP; ambiguidades não esc
  assert.equal(await f.app.locals.channels.member(u.companyId,jid),null);
  const linked=await f.store.get('user',u.id);linked.whatsappJid=jid;await f.store.put('user',u.companyId,linked,linked.id);assert.equal((await f.app.locals.channels.member(u.companyId,jid)).id,u.id);
 });
-test('setores isolam conexões, equipes, histórico, arquivos e identificação de colaborador',async t=>{
+test('setores isolam acesso dos atendentes; identidade do colaborador é reconhecida em todos os números da empresa',async t=>{
  const f=await fixture(t),cid=f.admin.user.companyId;await f.store.put('department',cid,{name:'Financeiro',active:true},'dep-fin');await f.store.put('department',cid,{name:'RH',active:true},'dep-rh');
  const u=await f.store.get('user',f.employee.user.id);u.departmentId='dep-fin';await f.store.put('user',cid,u,u.id);
  const a=(await f.request('/admin/whatsapp/channels',{name:'Financeiro',departmentId:'dep-fin'},f.admin.token)).body,b=(await f.request('/admin/whatsapp/channels',{name:'RH',departmentId:'dep-rh'},f.admin.token)).body;
  assert.equal((await f.request('/admin/whatsapp/channels/'+a.id,{teamIds:[u.id],signaturePosition:'bottom'},f.admin.token,'PATCH')).status,200);
  assert.equal((await f.request('/whatsapp/channels',undefined,f.employee.token)).body.channels.length,1);
  assert.equal((await f.request('/whatsapp/inbox?channelId='+b.id,undefined,f.employee.token)).status,403);
- assert.equal(await f.app.locals.channels.connectionFor(u),a.id);assert.equal(await f.app.locals.channels.member(cid,u.phone+'@s.whatsapp.net',b.id),null);
+ assert.equal(await f.app.locals.channels.connectionFor(u),a.id);assert.equal((await f.app.locals.channels.member(cid,u.phone+'@s.whatsapp.net',b.id)).id,u.id);
  await f.gateway.onMessage(a.id,'5568999999920@s.whatsapp.net','Olá',null,{id:'a-one'});await f.gateway.onMessage(b.id,'5568999999920@s.whatsapp.net','Olá',null,{id:'b-one'});
  const ta=(await f.request('/whatsapp/inbox?channelId='+a.id,undefined,f.employee.token)).body.threads[0],tb=(await f.request('/whatsapp/inbox?channelId='+b.id,undefined,f.admin.token)).body.threads[0];assert.notEqual(ta.id,tb.id);
  assert.equal((await f.request('/whatsapp/inbox/'+tb.id+'/messages',undefined,f.employee.token)).status,403);
@@ -60,7 +60,7 @@ test('onboarding exige conexão ou decisão explícita de conectar depois e ofer
  assert.equal((await f.request('/onboarding',{step:'install'},f.admin.token)).status,409);assert.equal((await f.request('/onboarding',{step:'install',skipConnection:true},f.admin.token)).status,200);
  assert.equal((await f.request('/onboarding',{step:'done',skipConnection:true},f.admin.token)).status,200);assert.equal((await f.request('/bootstrap',undefined,f.admin.token)).body.onboardingRequired,false);
  assert.equal((await f.request('/onboarding',{step:'whatsapp'},f.employee.token)).status,400);assert.equal((await f.request('/onboarding',{step:'done'},f.employee.token)).status,200);
- const app=(await f.request('/public/app')).body;assert.match(app.qrImage,/^data:image\/png;base64,/);assert.match(app.installUrl,/instalar=1/);assert.equal(app.version,'3.3.2');
+ const app=(await f.request('/public/app')).body;assert.match(app.qrImage,/^data:image\/png;base64,/);assert.match(app.installUrl,/instalar=1/);assert.equal(app.version,'3.4.0');
 });
 test('pastas pessoais permitem documentos e movimentação, mantendo isolamento por funcionário e empresa',async t=>{
  const f=await fixture(t),id=f.employee.user.id,p='/people/'+id,token=f.employee.token;

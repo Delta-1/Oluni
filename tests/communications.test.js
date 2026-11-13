@@ -104,22 +104,18 @@ test('eventos próprios entram como atendimento humano e ecos dos envios do sist
  await g.sendText(f.cid,raw.key.remoteJid,'Código de verificação de teste');await g.receiveRaw(f.cid,session,session.sock,{...raw,key:{...raw.key,id:'system-echo'}},'notify');assert.equal((await f.store.list('wa-message',f.cid)).length,1);
 });
 
-test('visitante recebe menu estático sem IA; atestado exige identificação e telefone correspondente',async t=>{
+test('visitante usa menu sem IA e documentos enviados em nome de outra pessoa ficam com a equipe',async t=>{
  const f=await fixture(t);await f.configureAI();const stranger='5568991112222@s.whatsapp.net',registered='5568999999999@s.whatsapp.net';
  assert.match(await f.gateway.onMessage(f.cid,stranger,'Quero informações'),/Falar com o RH/);assert.equal(f.aiCalls.length,0);
- assert.match(await f.gateway.onMessage(f.cid,stranger,'1'),/pedido de atendimento ao RH/);assert.equal(await f.gateway.onMessage(f.cid,stranger,'Preciso de ajuda com meu cadastro'),null);
- assert.match(await f.gateway.onMessage(f.cid,stranger,'ATESTADO'),/nome completo/);
- assert.match(await f.gateway.onMessage(f.cid,stranger,f.employee.user.employeeCode),/Não foi possível confirmar/);
- assert.equal((await f.store.list('document',f.cid)).length,0);
- // Identity never grants access from a different number, and never reveals the target name.
- const blocked=await f.gateway.onMessage(f.cid,stranger,f.employee.user.name);assert.match(blocked,/Não foi possível/);
- await f.gateway.onMessage(f.cid,registered,'ATESTADO');assert.match(await f.gateway.onMessage(f.cid,registered,f.employee.user.employeeCode),/Identificação confirmada/);
- const file={mime:'application/pdf',name:'exemplo.pdf',buffer:Buffer.from('%PDF-1.4\nArquivo de teste')};assert.match(await f.gateway.onMessage(f.cid,registered,'',file),/Recebemos/);
- assert.equal((await f.store.list('document',f.cid))[0].owner,f.employee.user.id);assert.equal((await f.store.list('wa-message',f.cid)).some(m=>m.file),false);
- assert.equal((await f.store.get('user',f.employee.user.id,f.cid)).phoneVerified,undefined);assert.equal(f.aiCalls.length,0);
+ assert.match(await f.gateway.onMessage(f.cid,stranger,'2'),/Uma pessoa da equipe/);assert.equal(await f.gateway.onMessage(f.cid,stranger,'ATESTADO'),null);
+ assert.equal(await f.gateway.onMessage(f.cid,stranger,f.employee.user.employeeCode),null);assert.equal(await f.gateway.onMessage(f.cid,stranger,f.employee.user.name),null);
+ const file={mime:'application/pdf',name:'exemplo.pdf',buffer:Buffer.from('%PDF-1.4\nArquivo de teste')};await f.gateway.onMessage(f.cid,stranger,'',file);
+ assert.equal((await f.store.list('document',f.cid)).length,0);assert.ok((await f.store.list('wa-message',f.cid)).some(m=>m.file));
+ assert.match(await f.gateway.onMessage(f.cid,registered,'ATESTADO'),/vinculado ao seu cadastro/);assert.match(await f.gateway.onMessage(f.cid,registered,'',file),/Recebemos/);
+ assert.equal((await f.store.list('document',f.cid))[0].owner,f.employee.user.id);assert.equal((await f.store.get('user',f.employee.user.id,f.cid)).phoneVerified,undefined);assert.equal(f.aiCalls.length,0);
 });
-test('nome completo também identifica o atestado e autorização de atendimento pode ser revogada',async t=>{
- const f=await fixture(t),u=await f.link();await f.gateway.onMessage(f.cid,u.whatsappJid,'2');assert.match(await f.gateway.onMessage(f.cid,u.whatsappJid,u.name),/Identificação confirmada/);
+test('telefone reconhecido dispensa nova identificação e autorização de atendimento pode ser revogada',async t=>{
+ const f=await fixture(t),u=await f.link();assert.match(await f.gateway.onMessage(f.cid,u.whatsappJid,'2'),/vinculado ao seu cadastro/);
  await f.grant();assert.equal((await f.req('/whatsapp/inbox',undefined,f.operator.token)).status,200);await f.req('/admin/whatsapp/agents/'+f.operator.user.id,{whatsappAgent:false},f.admin.token,'PATCH');assert.equal((await f.req('/whatsapp/inbox',undefined,f.operator.token)).status,403);
 });
 

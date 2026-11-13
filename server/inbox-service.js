@@ -5,17 +5,17 @@ import {serial} from './attendance.js';
 import {installWhatsAppIntake} from './whatsapp-intake.js';
 import {installWellbeing} from './whatsapp-wellbeing.js';
 import {canAttend,checkedAttachment} from './whatsapp-inbox.js';
-export function installWhatsAppInbox({route,store,secret,admin,gateway,configFor,channels,wellbeingAI,saveDocument}){
+export function installWhatsAppInbox({route,store,secret,admin,gateway,configFor,channels,wellbeingAI,enrollment,menus,employeeFiles,peoplePermissions,saveDocument}){
  const updates=inboxUpdates(store);
- const staff=(req,res,next)=>canAttend(req.user)?next():res.status(403).json({error:'Acesso restrito à equipe de atendimento.'});
+ const staff=async(req,res,next)=>(await channels.authorized(req.user)).length?next():res.status(403).json({error:'Acesso restrito à equipe autorizada deste WhatsApp.'});
  const tid=(cid,jid,key=cid)=>lookup(secret,'wa-thread',cid,...(key===cid?[]:[key]),jid);
  const threadFor=(cid,jid,key=cid)=>store.get('wa-thread',tid(cid,jid,key),cid);
  const context=key=>channels.resolve(key);
  const access=async(u,key)=>{const c=await channels.owned(u.companyId,key||u.companyId);if(!channels.canAccess(u,c))throw fail(403,'Você não faz parte da equipe deste WhatsApp.');return c;};
- const agents=async(cid,key)=>{const c=key?await channels.owned(cid,key):null;return (await store.list('user',cid)).filter(u=>canAttend(u)&&(!c||channels.canAccess(u,c))).map(u=>({id:u.id,name:u.name,role:u.role}));};
+ const agents=async(cid,key)=>{const list=key?[await channels.owned(cid,key)]:await channels.all(cid);return (await store.list('user',cid)).filter(u=>u.active&&list.some(c=>channels.canAccess(u,c))).map(u=>({id:u.id,name:u.name,role:u.role}));};
  const findUser=(cid,jid,key=cid)=>channels.member(cid,jid,key);
  const intake=installWhatsAppIntake({route,store,secret,admin,saveDocument,channels});
- const wellbeing=installWellbeing({route,store,secret,admin,gateway,configFor,channels,ai:wellbeingAI,threadFor});
+ const wellbeing=installWellbeing({route,store,secret,admin,gateway,configFor,channels,ai:wellbeingAI,threadFor:async(cid,jid,key=cid)=>{const t=await threadFor(cid,jid,key);return await menus.isWaiting(cid,key,jid)?{...t,botPaused:true,status:t?.status||'waiting'}:t;}});
  const threadSafe=t=>({id:t.id,name:t.name,phone:t.phone,channelId:t.channelId||t.companyId,isGroup:!!t.isGroup,status:t.status,assignedTo:t.assignedTo||null,botPaused:!!t.botPaused,updatedAt:t.updatedAt,lastMessage:t.lastMessage||'',unread:t.unread||0,tags:t.tags||[],pinned:!!t.pinned});
  const owned=async(id,u)=>{const t=await store.get('wa-thread',id,u.companyId);if(!t)throw fail(404,'Conversa não encontrada.');await access(u,t.channelId||u.companyId);return t;};
  const ensure=async(cid,jid,meta={},key=cid)=>{
@@ -59,7 +59,7 @@ export function installWhatsAppInbox({route,store,secret,admin,gateway,configFor
  route('get','/whatsapp/updates',staff,async(req,res)=>{
   const cid=req.user.companyId,key=String(req.query.channelId||cid);await access(req.user,key);
   const abort=new AbortController(),cancel=()=>abort.abort();res.on('close',cancel);
-  try{const result=await updates.wait(cid,key,String(req.query.cursor||''),abort.signal);if(!result||res.destroyed)return;const fresh=await store.get('user',req.user.id,cid);if(!canAttend(fresh))throw fail(403,'Seu acesso ao atendimento foi alterado.');await access(fresh,key);res.json(result);}finally{res.off('close',cancel);}
+  try{const result=await updates.wait(cid,key,String(req.query.cursor||''),abort.signal);if(!result||res.destroyed)return;const fresh=await store.get('user',req.user.id,cid);if(!fresh?.active)throw fail(403,'Seu acesso ao atendimento foi alterado.');await access(fresh,key);res.json(result);}finally{res.off('close',cancel);}
  });
  route('get','/whatsapp/inbox',staff,async(req,res)=>{
   const key=req.query.channelId?String(req.query.channelId):null;if(key)await access(req.user,key);
@@ -87,8 +87,8 @@ export function installWhatsAppInbox({route,store,secret,admin,gateway,configFor
   if(!['claim','release','close','transfer','details'].includes(b.action))throw fail(400,'Escolha uma ação da conversa.');
   if(b.action==='claim'){t.assignedTo=req.user.id;t.status='active';t.botPaused=true;}
   if(b.action==='transfer'){if(!(await agents(cid,t.channelId||cid)).some(u=>u.id===b.assignedTo))throw fail(400,'Escolha um atendente ativo desta equipe.');t.assignedTo=b.assignedTo;t.status='active';t.botPaused=true;}
-  if(b.action==='release'){t.assignedTo=null;t.status='waiting';t.botPaused=!!t.isGroup;}
-  if(b.action==='close'){t.assignedTo=null;t.status='closed';t.botPaused=!!t.isGroup;}
+  if(b.action==='release'){await menus.reset(cid,t.channelId||cid,t.jid);t.assignedTo=null;t.status='waiting';t.botPaused=!!t.isGroup;}
+  if(b.action==='close'){await menus.reset(cid,t.channelId||cid,t.jid);t.assignedTo=null;t.status='closed';t.botPaused=!!t.isGroup;}
   if(b.action==='details'){if(b.name!==undefined)t.name=text(b.name,2,100);if(b.tags!==undefined){if(!Array.isArray(b.tags)||b.tags.length>12)throw fail(400,'Use até 12 etiquetas.');t.tags=[...new Set(b.tags.map(v=>text(v,1,30)))];}if(b.pinned!==undefined)t.pinned=b.pinned===true;}
   const u=await findUser(cid,t.jid,t.channelId||cid);if(u)await wellbeing.stop(cid,u.id,t.channelId||cid);
   t.updatedAt=new Date().toISOString();await store.put('wa-thread',cid,t,t.id);res.json(threadSafe(t));
@@ -117,34 +117,49 @@ export function installWhatsAppInbox({route,store,secret,admin,gateway,configFor
   });
  });
  route('get','/whatsapp/files/:id',staff,async(req,res)=>{const cid=req.user.companyId,f=await store.get('wa-file',req.params.id,cid);if(!f)throw fail(404,'Arquivo não encontrado.');await owned(f.owner,req.user);res.json({mime:f.mime,name:f.name,data:(await readFile(f,cid)).toString('base64')});});
+ route('post','/whatsapp/files/:id/archive',staff,async(req,res)=>{
+  const cid=req.user.companyId;if(!(await peoplePermissions.caps(req.user)).manageFiles)throw fail(403,'Seu setor não tem acesso às pastas dos colaboradores.');const f=await store.get('wa-file',req.params.id,cid);if(!f)throw fail(404,'Arquivo não encontrado.');await owned(f.owner,req.user);const u=await employeeFiles.person(req.user,req.body.employeeId),buffer=await readFile(f,cid);if(!(await peoplePermissions.caps(req.user)).manageFiles)throw fail(403,'Seu acesso às pastas foi alterado.');const file={name:f.name,mime:f.mime,buffer};res.json(req.body.folderId==='atestados'?await saveDocument(u,file):await employeeFiles.save(u,file,{source:'whatsapp-human',folderId:req.body.folderId||'cadastro',category:''}));
+ });
  route('get','/admin/whatsapp/agents',admin,async(req,res)=>res.json((await store.list('user',req.user.companyId)).filter(u=>u.active).map(u=>({id:u.id,name:u.name,departmentId:u.departmentId||null,department:u.department,role:u.role,whatsappAgent:!!u.whatsappAgent,employeeCode:u.employeeCode}))));
- route('patch','/admin/whatsapp/agents/:id',admin,async(req,res)=>{const cid=req.user.companyId,u=await store.get('user',req.params.id,cid);if(!u||!u.active||u.role==='admin')throw fail(404,'Colaborador ativo não encontrado.');u.whatsappAgent=req.body.whatsappAgent===true;await store.put('user',cid,u,u.id);res.json(publicUser(u));});
- const receive=async(key,jid,message,attachment,meta={},legacy)=>{
+ route('patch','/admin/whatsapp/agents/:id',admin,async(req,res)=>{const cid=req.user.companyId,u=await store.get('user',req.params.id,cid);if(!u||!u.active||u.role==='admin')throw fail(404,'Colaborador ativo não encontrado.');u.whatsappAgent=req.body.whatsappAgent===true;u.whatsappChannelAccess=true;await store.put('user',cid,u,u.id);for(const c of await channels.all(cid)){if(!u.whatsappAgent){c.teamIds=(c.teamIds||[]).filter(id=>id!==u.id);c.blockedUserIds=[...new Set([...(c.blockedUserIds||[]),u.id])];}else if(c.id===cid){c.teamIds=[...new Set([...(c.teamIds||[]),u.id])];c.blockedUserIds=(c.blockedUserIds||[]).filter(id=>id!==u.id);}else continue;await store.put('wa-channel',cid,c,c.id);}res.json(publicUser(u));});
+ const receive=async(key,jid,message,attachment,meta={},legacy)=>serial('wa-contact:'+key+':'+jid,async()=>{
   const c=await context(key);if(!c)return null;const cid=c.companyId,company=await store.get('company',cid,cid);if(!company)return null;
-  const group=jid.endsWith('@g.us'),u=group?null:await findUser(cid,jid,key),command=message.trim().toUpperCase(),t=await threadFor(cid,jid,key);
-  if(!group){
-   const doc=await intake.document(cid,jid,message,attachment,key);if(doc.handled){if(u)await wellbeing.stop(cid,u.id,key);return doc.reply;}
+  if(meta.id){const receipt=lookup(secret,'wa-ingress-v2',cid,key,jid,meta.id);if(await store.get('wa-ingress',receipt,cid))return null;try{await store.put('wa-ingress',cid,{channelId:key,jid,at:new Date().toISOString()},receipt,true);}catch(e){if(e.status===409)return null;throw e;}}
+  const incomingText=message,group=jid.endsWith('@g.us');let u=group?null:await findUser(cid,jid,key),command=message.trim().toUpperCase(),t=await threadFor(cid,jid,key),action=null;
+  if(!group&&u&&command==='MENU'&&!u.whatsappConsent){u.whatsappConsent=true;await store.put('user',cid,u,u.id);await menus.reset(cid,key,jid);}
+  if(!group&&['PARAR','SAIR','STOP'].includes(command)){if(u)await wellbeing.stop(cid,u.id,key);await menus.guestStop(cid,jid,key);return u?.active?legacy(cid,jid,message,attachment,{...meta,channelId:key}):'Respostas automáticas desativadas. Envie MENU para voltar aos serviços.';}
+  if(!group&&['MENU','INICIO','INÍCIO'].includes(command))await menus.reset(cid,key,jid);
+  const waiting=!group&&await menus.isWaiting(cid,key,jid),paused=t?.botPaused&&t.status!=='closed'||waiting;
+  if(!group&&!paused){
+   const enrollmentResult=await enrollment.receive(cid,jid,message,attachment,key,u);if(enrollmentResult.handled)return enrollmentResult.reply;
+   if(u?.whatsappConsent)action=await menus.selection(cid,key,message,'employee',jid,u);
+   if(action?.action==='point')message='PONTO';if(action?.action==='document')message='ATESTADO';if(action?.action==='assistant')meta={...meta,startAssistant:true,assistantId:action.assistantId};
+   if(action?.action==='human'||action?.action==='channel'||action?.action==='phone')message='RH';
+   const doc=await intake.document(cid,jid,message,attachment,key,u);if(doc.handled){if(u)await wellbeing.stop(cid,u.id,key);return doc.reply;}if(doc.human)message='RH';
+   command=message.trim().toUpperCase();
    if(['PARAR BEM-ESTAR','PARAR BEM ESTAR'].includes(command))return (await wellbeing.receive(u,message,attachment,key)).reply;
-   if(!(t?.botPaused&&t.status!=='closed')){const result=await wellbeing.receive(u,message,attachment,key);if(result.handled)return result.reply;if(result.private)return legacy(cid,jid,message,attachment,{...meta,channelId:key});}
+   const result=await wellbeing.receive(u,message,attachment,key);if(result.handled)return result.reply;if(result.private)return legacy(cid,jid,message,attachment,{...meta,channelId:key});
    if(/^HUMOR\s+[1-5]$/.test(command))return legacy(cid,jid,message,attachment,{...meta,channelId:key});
-   if(attachment&&u?.active&&!t?.botPaused&&['application/pdf','image/jpeg','image/png'].includes(attachment.mime))return 'Para enviar atestado à sua pasta, envie ATESTADO e confirme seu nome completo ou código antes do arquivo. Não informe sua senha.';
    if(/^VINCULAR\s+/i.test(message))return legacy(cid,jid,message,attachment,{...meta,channelId:key});
-   if(['PARAR','SAIR','STOP'].includes(command)){if(u)await wellbeing.stop(cid,u.id,key);return u?.active?legacy(cid,jid,message,attachment,{...meta,channelId:key}):intake.guestStop(cid,jid,key);}
+   if(attachment&&u?.active&&u.whatsappConsent&&['application/pdf','image/jpeg','image/png'].includes(attachment.mime))return 'Para colocar o arquivo na sua pasta, envie ATESTADO ou DOCUMENTOS antes do arquivo. Se ele for de outra pessoa, envie RH para atendimento humano.';
   }
   let current=await ensure(cid,jid,meta,key),duplicate=false;
   await serial('inbox:'+current.id,async()=>{
-   current=await threadFor(cid,jid,key);const id=meta.id?lookup(secret,'wa-incoming',cid,...(key===cid?[]:[key]),jid,meta.id):undefined;
-   if(id&&await store.get('wa-message',id,cid)){duplicate=true;return;}
+   current=await threadFor(cid,jid,key);const id=meta.id?lookup(secret,'wa-incoming',cid,...(key===cid?[]:[key]),jid,meta.id):undefined;if(id&&await store.get('wa-message',id,cid)){duplicate=true;return;}
    let file=null;if(attachment)try{file=await addFile(cid,current.id,attachment);}catch{message=message||'Arquivo recebido em formato não suportado.';}
-   if(meta.transportJid)current.transportJid=meta.transportJid;
-   let reply=null;if(meta.quotedProviderId){const rows=await store.list('wa-message',cid,{owner:current.id,limit:2000}),q=rows.find(m=>m.providerId===meta.quotedProviderId);if(q&&!q.deletedAt)reply={id:q.id,text:(q.text||q.file?.name||'Arquivo').slice(0,180),author:q.agentName||current.name};}
-   await add(cid,current,{direction:'in',text:message,file,providerId:meta.id||null,providerKey:meta.providerKey||null,participantName:meta.participantName||null,reply,status:'received'},id);
+   if(meta.transportJid)current.transportJid=meta.transportJid;let reply=null;if(meta.quotedProviderId){const rows=await store.list('wa-message',cid,{owner:current.id,limit:2000}),q=rows.find(m=>m.providerId===meta.quotedProviderId);if(q&&!q.deletedAt)reply={id:q.id,text:(q.text||q.file?.name||'Arquivo').slice(0,180),author:q.agentName||current.name};}
+   await add(cid,current,{direction:'in',text:incomingText||message,file,providerId:meta.id||null,providerKey:meta.providerKey||null,participantName:meta.participantName||null,reply,status:'received'},id);
   });
-  if(duplicate||current.botPaused||group)return null;
-  const response=u?.active?await legacy(cid,jid,message.slice(0,4000),attachment,{...meta,channelId:key}):await intake.guestReply(cid,company,command,jid,key),fresh=await threadFor(cid,jid,key);if(!response||fresh?.botPaused)return null;
-  await serial('inbox:'+fresh.id,async()=>{const latest=await threadFor(cid,jid,key);if(!latest.botPaused)await add(cid,latest,{direction:'bot',text:response,status:'prepared'});});
-  return (await threadFor(cid,jid,key))?.botPaused?null:response;
- };
+  if(duplicate||current.botPaused||group||waiting)return null;
+  const human=/^(?:RH|FALAR COM O RH|ATENDIMENTO HUMANO)$/i.test(command)||/\b(?:FALAR|CONVERSAR)\b.*\b(?:RH|PESSOA|ATENDENTE|HUMANO)\b/i.test(command);
+  let response;
+  if(human||action&&['human','channel','phone'].includes(action.action)){
+   await menus.handoff(cid,key,jid);if(u?.active){await wellbeing.stop(cid,u.id,key);await store.put('hr-request',cid,{owner:u.id,channelId:key,text:'Solicitou atendimento pelo WhatsApp',at:new Date().toISOString(),status:'pending'});}
+   response=action&&['channel','phone'].includes(action.action)?await menus.routeContact(cid,key,action):'Recebemos seu pedido de atendimento ao RH ou à equipe responsável. Uma pessoa continuará por este WhatsApp.';
+  }else response=u?.active&&u.whatsappConsent?await legacy(cid,jid,message.slice(0,4000),attachment,{...meta,channelId:key}):await menus.guestReply(cid,company,message,jid,key);
+  const fresh=await threadFor(cid,jid,key);if(!response||fresh?.botPaused)return null;
+  await serial('inbox:'+fresh.id,async()=>{const latest=await threadFor(cid,jid,key);if(!latest.botPaused)await add(cid,latest,{direction:'bot',text:response,status:'prepared'});});return (await threadFor(cid,jid,key))?.botPaused?null:response;
+ });
  const own=async(key,jid,message,attachment,meta={})=>{
   const c=await context(key);if(!c)return;const cid=c.companyId,u=await findUser(cid,jid,key);if(u&&await wellbeing.active(cid,u.id,key))return;
   const t=await ensure(cid,jid,meta,key);await serial('inbox:'+t.id,async()=>{const rows=await store.list('wa-message',cid,{owner:t.id,limit:500});if(meta.id&&rows.some(m=>m.providerId===meta.id))return;let f=null;if(attachment)try{f=await addFile(cid,t.id,attachment);}catch{}const latest=await threadFor(cid,jid,key);latest.botPaused=true;latest.status='active';await add(cid,latest,{direction:'out',text:message,file:f,providerId:meta.id||null,providerKey:meta.providerKey||null,agentName:'WhatsApp da empresa',status:'sent'});});

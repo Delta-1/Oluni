@@ -62,7 +62,7 @@ export function summarize(entries,company,from,to,users=[]) {
       expectedMinutes:expected,balanceMinutes:complete&&!presence?workedMinutes-expected:null};
   }).sort((a,b)=>b.day.localeCompare(a.day)||a.name.localeCompare(b.name));
 }
-export function installAttendance({route,store,secret,admin,companyFor,gateway,connectionFor=async u=>u.companyId,reply}) {
+export function installAttendance({route,store,secret,admin,companyFor,gateway,peoplePermissions,connectionFor=async u=>u.companyId,reply}) {
   const forUser=async u=>ensureEmployeeCode(store,secret,u);
   const mine=async(user)=>{
     const c=await companyFor(user.companyId), today=localDay(new Date(),companySettings(c).timezone);
@@ -148,14 +148,14 @@ export function installAttendance({route,store,secret,admin,companyFor,gateway,c
     }catch(e){for(const chunkId of chunks)await store.remove('document-chunk',chunkId,user.companyId);if(e.status===409){const existing=await store.get('document',id,user.companyId);if(existing)return safeDocument(existing);}throw e;}
   };
   route('post','/documents',async(req,res)=>res.status(201).json(await saveDocument(req.user,req.body,'app')));
-  route('get','/documents',async(req,res)=>res.json((await store.list('document',req.user.companyId,req.user.role==='admin'?{}:{owner:req.user.id})).map(safeDocument)));
+  route('get','/documents',async(req,res)=>res.json((await store.list('document',req.user.companyId,(await peoplePermissions.caps(req.user)).manageFiles?{}:{owner:req.user.id})).map(safeDocument)));
   route('get','/documents/:id/file',async(req,res)=>{
     const d=await store.get('document',req.params.id,req.user.companyId);
-    if(!d||(req.user.role!=='admin'&&d.owner!==req.user.id))throw fail(404,'Documento não encontrado.');
+    if(!d||(d.owner!==req.user.id&&!(await peoplePermissions.caps(req.user)).manageFiles))throw fail(404,'Documento não encontrado.');
     const parts=[];for(const id of d.chunks){const chunk=await store.get('document-chunk',id,req.user.companyId);if(!chunk||chunk.documentId!==d.id)throw fail(503,'Documento temporariamente indisponível.');parts.push(Buffer.from(chunk.data,'base64'));}
     res.json({name:d.name,mime:d.mime,data:Buffer.concat(parts).toString('base64')});
   });
-  route('patch','/admin/documents/:id',admin,async(req,res)=>{
+  route('patch','/admin/documents/:id',peoplePermissions.requireCapability('manageFiles'),async(req,res)=>{
     const d=await store.get('document',req.params.id,req.user.companyId);if(!d)throw fail(404,'Documento não encontrado.');
     if(!['pending','accepted','rejected'].includes(req.body.status))throw fail(400,'Status inválido.');
     d.status=req.body.status;d.note=text(req.body.note||'',0,1000);await store.put('document',req.user.companyId,d,d.id);res.json(safeDocument(d));
