@@ -1,4 +1,9 @@
 .pn .ol-brand-button{display:inline-flex;align-items:center;gap:10px;width:max-content;max-width:100%;background:none;border:0;padding:0;color:inherit;text-align:left;cursor:pointer;font:inherit}
-.ol-clock-rotor,.ol-clock-glyph{display:block}.ol-clock-rotor{transform-origin:center}.ol-clock-loading{animation:oluni-clock-turn 1.8s linear infinite}.pn .ol-clock-clicked{animation:oluni-clock-turn 1.8s cubic-bezier(.3,0,.2,1) both!important}.ol-brand-button:active .ol-brand-icon{filter:brightness(1.15)}
-@keyframes oluni-clock-turn{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
-@media(prefers-reduced-motion:reduce){.ol-clock-loading{animation:none}}
+.ol-clock-face{position:relative;display:block;width:23px;height:23px}.ol-clock-glyph,.ol-clock-hand,.ol-clock-hand>svg{display:block}.ol-clock-hand{position:absolute;inset:0;transform-origin:center;pointer-events:none}
+.ol-clock-loading .ol-clock-minute{animation:oluni-minute-turn 2.2s cubic-bezier(.4,0,.2,1) infinite}.ol-clock-loading .ol-clock-hour{animation:oluni-hour-turn 2.2s cubic-bezier(.4,0,.2,1) infinite}
+/* A deliberate tap replays both hands, even when automatic motion is reduced. */
+.pn .ol-clock-clicked .ol-clock-minute{animation:oluni-minute-turn 2.2s cubic-bezier(.4,0,.2,1) both!important}.pn .ol-clock-clicked .ol-clock-hour{animation:oluni-hour-turn 2.2s cubic-bezier(.4,0,.2,1) both!important}
+.ol-brand-button:active .ol-brand-icon{filter:brightness(1.15)}
+@keyframes oluni-minute-turn{0%{transform:rotate(0deg)}45%,100%{transform:rotate(360deg)}}
+@keyframes oluni-hour-turn{0%,50%{transform:rotate(0deg)}95%,100%{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.ol-clock-loading .ol-clock-hand{animation:none}}
