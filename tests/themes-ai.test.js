@@ -10,7 +10,7 @@ const config={provider:'gemini',model:'test-model',botName:'Equipe RH',instructi
 async function fixture(t){
  const store=new MemoryStore(),calls=[],gateway={status:async()=>({status:'connected'}),sendText:async()=>{}},server=createApp({store,secret,gateway,ai:async()=> 'Escuta privada.',whatsappAI:async(settings,history,context)=>{calls.push({settings,history:structuredClone(history),context});return 'Sou a IA do RH. Para enviar um atestado, envie o arquivo neste WhatsApp.';}}).listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(()=>new Promise(r=>server.close(r)));
  const req=async(path,body,session='',method)=>{const res=await fetch('http://127.0.0.1:'+server.address().port+'/api'+path,{method:method||(body===undefined?'GET':'POST'),headers:{'content-type':'application/json',...(session?{authorization:'Bearer '+session}:{})},body:body===undefined?undefined:JSON.stringify(body)});return {status:res.status,body:await res.json()};};
- const company=async(email)=>{const r=await req('/auth/register',person(email,{mode:'company',companyName:'Empresa Exemplo'}));assert.equal(r.status,201);return r.body;};
+ const company=async(email)=>{const r=await req('/auth/register',person(email,{mode:'company',document:'11222333000181',companyName:'Empresa Exemplo'}));assert.equal(r.status,201);return r.body;};
  const admin=await company('admin@example.test'),invite=(await req('/admin/access',undefined,admin.token)).body.invite,employee=(await req('/auth/register',person('employee@example.test',{mode:'employee',invite}))).body;
  return {store,req,company,admin,employee,calls,gateway};
 }
@@ -65,6 +65,6 @@ test('modo automático atende perguntas livres e mantém comandos determinístic
 });
 test('transporte envia orientações próprias do RH e preserva a persona privada da Flora',async()=>{
  const calls=[],fetcher=async(url,options)=>{calls.push({url,options,body:JSON.parse(options.body)});return {ok:true,json:async()=>({choices:[{message:{content:'Resposta de teste.'}}]})};};
- const settings={...config,provider:'openai'};await hrAssistant(settings,[{role:'user',text:'Como envio o documento?'}],{companyName:'Empresa Exemplo'},fetcher);await companion(settings,[{role:'user',text:'Como me sinto hoje'}],fetcher);
+ const settings={...config,provider:'openai'};await hrAssistant(settings,[{role:'user',text:'Como envio o documento?'}],{document:'11222333000181',companyName:'Empresa Exemplo'},fetcher);await companion(settings,[{role:'user',text:'Como me sinto hoje'}],fetcher);
  assert.match(calls[0].body.messages[0].content,/assistente virtual de IA do RH/);assert.match(calls[1].body.messages[0].content,/Flora/);assert.equal(calls[0].options.headers.Authorization,'Bearer '+config.apiKey);assert.equal(calls[0].body.messages[0].content.includes(config.apiKey),false);
 });

@@ -1,6 +1,6 @@
 import QRCode from 'qrcode';
 import {fail} from './security.js';
-export const appVersion='3.2.1';
+export const appVersion='3.3.0';
 export function installPublicApp({route,publicAppUrl}){
  const origin=new URL(publicAppUrl||process.env.PUBLIC_APP_URL||'https://oluni.up.railway.app/');origin.search='';origin.hash='';
  const install=new URL(origin);install.searchParams.set('instalar','1');

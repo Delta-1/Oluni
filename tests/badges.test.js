@@ -10,7 +10,7 @@ const person=(email,extra={})=>({name:'Pessoa Exemplo',email,password:'test-pass
 async function fixture(t){
  const store=new MemoryStore(),server=createApp({store,secret,publicAppUrl:'https://oluni.up.railway.app/'}).listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(()=>new Promise(r=>server.close(r)));
  const req=async(path,body,session='',method)=>{const res=await fetch('http://127.0.0.1:'+server.address().port+'/api'+path,{method:method||(body===undefined?'GET':'POST'),headers:{'content-type':'application/json',...(session?{authorization:'Bearer '+session}:{})},body:body===undefined?undefined:JSON.stringify(body)});return {status:res.status,body:await res.json()};};
- const company=async(email)=>{const r=await req('/auth/register',person(email,{mode:'company',companyName:'Empresa Exemplo'}));assert.equal(r.status,201);return r.body;};
+ const company=async(email)=>{const r=await req('/auth/register',person(email,{mode:'company',document:'11222333000181',companyName:'Empresa Exemplo'}));assert.equal(r.status,201);return r.body;};
  const admin=await company('admin@example.test'),invite=(await req('/admin/access',undefined,admin.token)).body.invite;
  const avatar={mime:'image/jpeg',data:(await sharp({create:{width:80,height:100,channels:3,background:'#bb9977'}}).jpeg().withMetadata({exif:{IFD0:{Artist:'PRIVATE EXIF'}}}).toBuffer()).toString('base64')};
  const employee=(await req('/auth/register',person('employee@example.test',{mode:'employee',invite,photo:avatar}))).body;

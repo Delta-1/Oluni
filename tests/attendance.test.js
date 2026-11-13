@@ -10,7 +10,7 @@ async function fixture(t){
   const store=new MemoryStore(),sent=[],gateway={status:async()=>({status:'connected'}),sendText:async(cid,jid,message)=>sent.push({cid,jid,message})};
   const app=createApp({store,secret,gateway}),server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(()=>new Promise(r=>server.close(r)));
   const request=async(path,body,session='',method)=>{const r=await fetch('http://127.0.0.1:'+server.address().port+'/api'+path,{method:method||(body===undefined?'GET':'POST'),headers:{'Content-Type':'application/json',...(session?{Authorization:'Bearer '+session}:{})},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,body:await r.json()};};
-  const register=async(email)=>{const r=await request('/auth/register',person(email,{mode:'company',companyName:'Empresa Exemplo'}));assert.equal(r.status,201);const links=await request('/admin/access',undefined,r.body.token);return {...r.body,links:links.body};};
+  const register=async(email)=>{const r=await request('/auth/register',person(email,{mode:'company',document:'11222333000181',companyName:'Empresa Exemplo'}));assert.equal(r.status,201);const links=await request('/admin/access',undefined,r.body.token);return {...r.body,links:links.body};};
   const admin=await register('admin@example.com');const registered=await request('/auth/register',person('employee@example.com',{invite:admin.links.invite,mode:'employee',role:'admin'}));assert.equal(registered.status,201);
   return {store,sent,gateway,request,register,admin,employee:registered.body};
 }

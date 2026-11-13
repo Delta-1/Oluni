@@ -11,7 +11,7 @@ async function fixture(t,{platform=false}={}){
  const ai=async(s)=>{assert.equal(s.apiKey,'platform-secret-never-serialize');return 'Resposta de exemplo';};
  const app=createApp({store,secret,gateway,ai,whatsappAI:ai,platformEnv:platform?{OLUNI_AI_API_KEY:'platform-secret-never-serialize'}:{}}),server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(()=>new Promise(r=>server.close(r)));
  const request=async(path,body,token='',method)=>{const r=await fetch('http://127.0.0.1:'+server.address().port+'/api'+path,{method:method||(body===undefined?'GET':'POST'),headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,body:await r.json()};};
- const register=async(email,phone,invite)=>{const r=await request('/auth/register',{mode:invite?'employee':'company',invite,companyName:'Empresa Exemplo',name:'Pessoa '+email.split('@')[0],email,phone,password:'abc123',birthDate:'2000-01-01',jobTitle:'Analista',department:'Geral'});assert.equal(r.status,201);return r.body;};
+ const register=async(email,phone,invite)=>{const r=await request('/auth/register',{mode:invite?'employee':'company',invite,document:'11222333000181',companyName:'Empresa Exemplo',name:'Pessoa '+email.split('@')[0],email,phone,password:'abc123',birthDate:'2000-01-01',jobTitle:'Analista',department:'Geral'});assert.equal(r.status,201);return r.body;};
  const admin=await register('admin@example.com','5568999999900'),access=(await request('/admin/access',undefined,admin.token)).body,employee=await register('employee@example.com','5568999999901',access.invite),other=await register('other@example.com','59170000001',access.invite);
  return {app,store,gateway,sent,calls,states,request,register,admin,employee,other};
 }
@@ -60,7 +60,7 @@ test('onboarding exige conexão ou decisão explícita de conectar depois e ofer
  assert.equal((await f.request('/onboarding',{step:'install'},f.admin.token)).status,409);assert.equal((await f.request('/onboarding',{step:'install',skipConnection:true},f.admin.token)).status,200);
  assert.equal((await f.request('/onboarding',{step:'done',skipConnection:true},f.admin.token)).status,200);assert.equal((await f.request('/bootstrap',undefined,f.admin.token)).body.onboardingRequired,false);
  assert.equal((await f.request('/onboarding',{step:'whatsapp'},f.employee.token)).status,400);assert.equal((await f.request('/onboarding',{step:'done'},f.employee.token)).status,200);
- const app=(await f.request('/public/app')).body;assert.match(app.qrImage,/^data:image\/png;base64,/);assert.match(app.installUrl,/instalar=1/);assert.equal(app.version,'3.2.1');
+ const app=(await f.request('/public/app')).body;assert.match(app.qrImage,/^data:image\/png;base64,/);assert.match(app.installUrl,/instalar=1/);assert.equal(app.version,'3.3.0');
 });
 test('pastas pessoais permitem documentos e movimentação, mantendo isolamento por funcionário e empresa',async t=>{
  const f=await fixture(t),id=f.employee.user.id,p='/people/'+id,token=f.employee.token;

@@ -1,3 +1,4 @@
+import {documentError,documentType,normalizeDocument} from '../src/company-document.js';
 import {installBusinessReports} from './business-reports.js';
 import {personalData} from './personal-data.js';
 import express from 'express';
@@ -49,7 +50,7 @@ export function createApp({store,secret,gateway=null,ai=companion,whatsappAI,wel
  const verification=installPublicAttendance({route,store,secret,gateway,limiter,companyFor,connectionFor:channels.connectionFor,getAttendance:()=>attendance});
  const authLimit=limiter(20,900000);
  route('post','/auth/register',authLimit,async(req,res)=>{const p=profile(req.body),passwordHash=await hashPassword(req.body.password),id=lookup(secret,'email',p.email);if(await store.get('user',id))throw fail(409,'Não foi possível cadastrar. Se já tem uma conta, faça login.');const photo=req.body.photo?await normalizeIdentityImage(req.body.photo):null;const isAdmin=req.body.mode==='company';let c,codeId;
- if(isAdmin){const companyId='moodcorp:'+randomUUID(),code=randomBytes(5).toString('hex').toUpperCase();c={id:companyId,name:text(req.body.companyName,2,120),sector:text(req.body.sector||'Serviços',2,100),attendanceMethod:validMethod(req.body.attendanceMethod||'code'),code,createdAt:new Date().toISOString()};codeId=lookup(secret,'code',code);await store.put('company',companyId,c,companyId,true);try{await store.put('code',companyId,{companyId},codeId,true);}catch(e){await store.remove('company',companyId,companyId);throw e;}}
+ if(isAdmin){const problem=documentError(req.body.document);if(problem)throw fail(400,problem);const companyId='moodcorp:'+randomUUID(),code=randomBytes(5).toString('hex').toUpperCase();c={id:companyId,document:normalizeDocument(req.body.document),documentType:documentType(req.body.document),name:text(req.body.companyName,2,120),sector:text(req.body.sector||'Serviços',2,100),attendanceMethod:validMethod(req.body.attendanceMethod||'code'),code,createdAt:new Date().toISOString()};codeId=lookup(secret,'code',code);await store.put('company',companyId,c,companyId,true);try{await store.put('code',companyId,{companyId},codeId,true);}catch(e){await store.remove('company',companyId,companyId);throw e;}}
  else {c=await resolveAccess(store,secret,req.body.invite,'invite');}
  if(!isAdmin){p.departmentId=c.invitedDepartment?.id||null;p.department=c.invitedDepartment?.name||'Geral';}
  const user={...p,id,companyId:c.id,role:isAdmin?'admin':'employee',active:true,passwordHash,shareMood:false,aiConsent:false,whatsappConsent:true,createdAt:new Date().toISOString()};
