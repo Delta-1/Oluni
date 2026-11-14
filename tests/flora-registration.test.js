@@ -48,3 +48,6 @@ test('pendências de cadastro não repetem menu nem capturam um atestado como do
  const f=await fixture(t),u=f.alice.user,jid=u.phone+'@s.whatsapp.net';assert.equal((await f.req('/people/'+u.id+'/document-requests',{requiredDocuments:['rg','ctps'],channelId:f.cid},f.admin.token)).status,200);
  assert.match(await f.message(jid,'Olá, meu dia está corrido'),/ouvir/);assert.match(await f.message(jid,'DOCUMENTOS'),/RG/);assert.match(await f.message(jid,'1'),/Envie RG/);assert.match(await f.message(jid,'Podemos conversar um pouco?'),/ouvir/);assert.match(await f.message(jid,'Preciso enviar um atestado'),/Pode enviar/);assert.match(await f.message(jid,u.name,pdf),/Pendentes/);assert.equal((await f.store.list('employee-file',f.cid)).length,0);assert.equal((await f.store.list('certificate',f.cid)).length,1);assert.equal((await f.store.list('document',f.cid)).length,0);
 });
+test('dizer conversar não exige autorização para receber convites programados de bem-estar',async t=>{
+ const f=await fixture(t);assert.equal((await f.store.get('user',f.alice.user.id,f.cid)).wellbeingWhatsappConsent,undefined);assert.match(await f.message(f.alice.user.phone+'@s.whatsapp.net','Conversar'),/ouvir/);assert.match(await f.message(f.bob.user.phone+'@s.whatsapp.net','Conversar'),/ACEITO IA/);assert.equal(f.calls.length,1);
+});
