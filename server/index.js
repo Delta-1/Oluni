@@ -19,5 +19,5 @@ if(projectReset){
  setTimeout(()=>store.projectDataCounts().then(counts=>console.log('Oluni: verificação após limpeza.',JSON.stringify(counts))).catch(()=>console.error('Oluni: verificação após limpeza indisponível.')),30000).unref();
 }
 const gateway=new WhatsAppGateway(store,secret),app=createApp({store,secret,gateway,staticPath:fileURLToPath(new URL('../dist',import.meta.url))});
-const server=app.listen(Number(process.env.PORT||8080),'0.0.0.0',()=>{console.log('Oluni pronto.');app.locals.whatsappHub.wellbeing.start();gateway.restore().catch(()=>console.error('Reconexão do WhatsApp pendente.'));});
-for(const signal of ['SIGTERM','SIGINT'])process.on(signal,async()=>{app.locals.whatsappHub.wellbeing.close();await gateway.close();server.close(()=>process.exit(0));setTimeout(()=>process.exit(0),5000).unref();});
+const server=app.listen(Number(process.env.PORT||8080),'0.0.0.0',()=>{console.log('Oluni pronto.');app.locals.whatsappHub.wellbeing.start();app.locals.welcome.start();gateway.restore().catch(()=>console.error('Reconexão do WhatsApp pendente.'));});
+for(const signal of ['SIGTERM','SIGINT'])process.on(signal,async()=>{app.locals.whatsappHub.wellbeing.close();app.locals.welcome.close();await gateway.close();server.close(()=>process.exit(0));setTimeout(()=>process.exit(0),5000).unref();});

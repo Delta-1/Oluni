@@ -117,7 +117,7 @@ export function installAttendance({route,store,secret,admin,companyFor,gateway,p
     const active=users.filter(u=>u.active&&u.role==='employee');
     const present=new Set(todayEntries.map(e=>e.owner));
     res.json({today,employees,records,departments,stats:{employees:active.length,present:active.filter(u=>present.has(u.id)).length,
-      pending:active.filter(u=>!present.has(u.id)).length,documents:(await store.list('document',c.id)).filter(d=>d.status==='pending').length},settings:companySettings(c)});
+      pending:active.filter(u=>!present.has(u.id)).length,documents:(await Promise.all([store.list('document',c.id),store.list('certificate',c.id)])).flat().filter(d=>['pending','filing'].includes(d.status)).length},settings:companySettings(c)});
   });
   route('get','/admin/attendance/settings',admin,async(req,res)=>res.json(companySettings(await companyFor(req.user.companyId))));
   route('post','/admin/attendance/settings',admin,async(req,res)=>{
@@ -147,7 +147,6 @@ export function installAttendance({route,store,secret,admin,companyFor,gateway,p
       return safeDocument(d);
     }catch(e){for(const chunkId of chunks)await store.remove('document-chunk',chunkId,user.companyId);if(e.status===409){const existing=await store.get('document',id,user.companyId);if(existing)return safeDocument(existing);}throw e;}
   };
-  route('post','/documents',async(req,res)=>res.status(201).json(await saveDocument(req.user,req.body,'app')));
   route('get','/documents',async(req,res)=>res.json((await store.list('document',req.user.companyId,(await peoplePermissions.caps(req.user)).manageFiles?{}:{owner:req.user.id})).map(safeDocument)));
   route('get','/documents/:id/file',async(req,res)=>{
     const d=await store.get('document',req.params.id,req.user.companyId);

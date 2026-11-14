@@ -4,9 +4,9 @@ export default defineConfig({base:process.env.GITHUB_PAGES==='true'?'/Oluni/':'/
  // MemoryStore and refuses to start without real database credentials.
  const {MemoryStore}=await import('./server/store.js');
  const {createApp}=await import('./server/app.js');
- const {seedPreview,previewGateway}=await import('./server/preview.js');
+ const {seedPreview,previewGateway,previewAI}=await import('./server/preview.js');
  const store=new MemoryStore();await store.init();
  const previewToken=await seedPreview(store);
- const app=createApp({store,gateway:previewGateway(),secret:'moodcorp-local-preview-only-not-a-production-secret',publicAppUrl:'http://127.0.0.1:4173/'});
+ const app=createApp({store,gateway:previewGateway(),ai:previewAI,whatsappAI:previewAI,secret:'moodcorp-local-preview-only-not-a-production-secret',publicAppUrl:'http://127.0.0.1:4173/'});
  server.middlewares.use((req,res,next)=>{if(!req.url?.startsWith('/api'))return next();if(req.url.includes('local-preview=1'))req.headers.authorization='Bearer '+previewToken;app(req,res,next);});
 }}],build:{target:'es2022'}});

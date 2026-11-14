@@ -50,11 +50,11 @@ test('relatório desconta intervalo e trata jornada que cruza meia-noite',()=>{
 test('documentos são privados, validados e deduplicados por colaborador',async t=>{
  const f=await fixture(t),pdf={name:'atestado-exemplo.pdf',mime:'application/pdf',data:Buffer.from('%PDF-1.4\nExample only\n%%EOF').toString('base64')};
  const r=await f.request('/documents',pdf,f.employee.token);assert.equal(r.status,201);assert.equal(r.body.status,'pending');assert.equal(r.body.data,undefined);
- assert.equal((await f.request('/documents',pdf,f.employee.token)).body.id,r.body.id);assert.equal((await f.store.list('document')).length,1);
- const b=await f.register('isolated@example.com');assert.equal((await f.request('/documents/'+r.body.id+'/file',undefined,b.token)).status,404);
- assert.equal((await f.request('/admin/documents/'+r.body.id,{status:'accepted'},f.employee.token,'PATCH')).status,403);
- assert.equal((await f.request('/admin/documents/'+r.body.id,{status:'accepted'},f.admin.token,'PATCH')).status,200);
- assert.equal((await f.request('/documents/'+r.body.id+'/file',undefined,f.employee.token)).body.data,pdf.data);
+ assert.equal((await f.request('/documents',pdf,f.employee.token)).body.id,r.body.id);assert.equal((await f.store.list('document')).length,0);assert.equal((await f.store.list('certificate')).length,1);
+ const b=await f.register('isolated@example.com');assert.equal((await f.request('/documents/pending/'+r.body.id+'/file',undefined,b.token)).status,404);
+ assert.equal((await f.request('/documents/pending/'+r.body.id+'/confirm',{employeeId:f.employee.user.id,confirmed:true},f.employee.token)).status,403);
+ assert.equal((await f.request('/documents/pending/'+r.body.id+'/confirm',{employeeId:f.employee.user.id,confirmed:true},f.admin.token)).status,200);
+ assert.equal((await f.request('/documents/pending/'+r.body.id+'/file',undefined,f.employee.token)).body.data,pdf.data);
  assert.equal((await f.request('/documents',{...pdf,data:Buffer.from('not pdf').toString('base64')},f.employee.token)).status,400);
 });
 test('WhatsApp recupera senha sem verificação inicial, valida código e revoga sessões',async t=>{
@@ -71,13 +71,13 @@ test('WhatsApp recupera senha sem verificação inicial, valida código e revoga
 });
 test('bot recebe atestado sem IA pelo telefone vinculado e sem pedir código novamente',async t=>{
  const f=await fixture(t),u=await f.store.get('user',f.employee.user.id);u.whatsappJid=u.phone+'@s.whatsapp.net';u.whatsappConsent=true;await f.store.put('user',u.companyId,u,u.id);
- assert.match(await f.gateway.onMessage(u.companyId,u.whatsappJid,'MENU'),/Meu ponto/);
- assert.match(await f.gateway.onMessage(u.companyId,u.whatsappJid,'2'),/PDF/);
- assert.match(await f.gateway.onMessage(u.companyId,u.whatsappJid,'Posso enviar agora?'),/Envie seu atestado/);
- const result=await f.gateway.onMessage(u.companyId,u.whatsappJid,'',{mime:'application/pdf',name:'exemplo.pdf',buffer:Buffer.from('%PDF-1.4\nexample')});assert.match(result,/Recebemos/);
- assert.equal((await f.store.list('document',u.companyId))[0].owner,u.id);
+ assert.match(await f.gateway.onMessage(u.companyId,u.whatsappJid,'MENU'),/Flora/);
+ assert.match(await f.gateway.onMessage(u.companyId,u.whatsappJid,'ATESTADO'),/PDF/);
+ assert.match(await f.gateway.onMessage(u.companyId,u.whatsappJid,u.employeeCode),/conferência do RH/);
+ const result=await f.gateway.onMessage(u.companyId,u.whatsappJid,'',{mime:'application/pdf',name:'exemplo.pdf',buffer:Buffer.from('%PDF-1.4\nexample')});assert.match(result,/Recebi/);
+ assert.equal((await f.store.list('document',u.companyId)).length,0);const staged=(await f.store.list('certificate',u.companyId))[0];assert.equal(staged.suggestedEmployeeId,u.id);assert.equal((await f.request('/documents/pending/'+staged.id+'/confirm',{employeeId:u.id,confirmed:true},f.admin.token)).status,200);
  assert.equal(await f.gateway.onMessage('other-company',u.whatsappJid,'MENU'),null);
- await f.gateway.onMessage(u.companyId,u.whatsappJid,'3');const requests=await f.request('/admin/hr-requests',undefined,f.admin.token);assert.equal(requests.body.length,1);
+ await f.gateway.onMessage(u.companyId,u.whatsappJid,'RH');const requests=await f.request('/admin/hr-requests',undefined,f.admin.token);assert.equal(requests.body.length,1);
  assert.equal((await f.request('/admin/hr-requests/'+requests.body[0].id+'/reply',{text:'Olá, em que posso ajudar?'},f.admin.token)).status,200);assert.match(f.sent.at(-1).message,/RH:/);
 });
 test('limpeza de contas executa uma vez, revoga acessos e preserva registros históricos',async()=>{

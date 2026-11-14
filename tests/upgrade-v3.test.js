@@ -17,7 +17,7 @@ async function fixture(t,{platform=false}={}){
 }
 test('telefone cadastrado reconhece o colaborador sem OTP; ambiguidades não escolhem uma conta',async t=>{
  const f=await fixture(t),u=f.employee.user,jid=u.phone+'@s.whatsapp.net';assert.equal((await f.store.get('user',u.id)).phoneVerified,undefined);
- assert.match(await f.gateway.onMessage(u.companyId,jid,'MENU'),/Meu ponto/);assert.equal(f.sent.length,0);
+ assert.match(await f.gateway.onMessage(u.companyId,jid,'MENU'),/Flora/);assert.equal(f.sent.length,0);
  const other=await f.store.get('user',f.other.user.id);other.phone=u.phone;await f.store.put('user',u.companyId,other,other.id);
  assert.equal(await f.app.locals.channels.member(u.companyId,jid),null);
  const linked=await f.store.get('user',u.id);linked.whatsappJid=jid;await f.store.put('user',u.companyId,linked,linked.id);assert.equal((await f.app.locals.channels.member(u.companyId,jid)).id,u.id);
@@ -60,7 +60,7 @@ test('onboarding exige conexão ou decisão explícita de conectar depois e ofer
  assert.equal((await f.request('/onboarding',{step:'install'},f.admin.token)).status,409);assert.equal((await f.request('/onboarding',{step:'install',skipConnection:true},f.admin.token)).status,200);
  assert.equal((await f.request('/onboarding',{step:'done',skipConnection:true},f.admin.token)).status,200);assert.equal((await f.request('/bootstrap',undefined,f.admin.token)).body.onboardingRequired,false);
  assert.equal((await f.request('/onboarding',{step:'whatsapp'},f.employee.token)).status,400);assert.equal((await f.request('/onboarding',{step:'done'},f.employee.token)).status,200);
- const app=(await f.request('/public/app')).body;assert.match(app.qrImage,/^data:image\/png;base64,/);assert.match(app.installUrl,/instalar=1/);assert.equal(app.version,'3.4.0');
+ const app=(await f.request('/public/app')).body;assert.match(app.qrImage,/^data:image\/png;base64,/);assert.match(app.installUrl,/instalar=1/);assert.equal(app.version,'3.5.0');
 });
 test('pastas pessoais permitem documentos e movimentação, mantendo isolamento por funcionário e empresa',async t=>{
  const f=await fixture(t),id=f.employee.user.id,p='/people/'+id,token=f.employee.token;

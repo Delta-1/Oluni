@@ -76,15 +76,15 @@ test('dois atendentes não assumem juntos; resposta tem idempotência e identifi
  await f.req('/whatsapp/inbox/'+id,{action:'transfer',assignedTo:f.admin.user.id},f.operator.token,'PATCH');assert.equal((await f.req('/whatsapp/inbox/'+id+'/messages',{...request,requestId:'new-request-123456'},f.operator.token)).status,409);
 });
 test('assumir pausa o bot e os convites; devolver permite serviços novamente',async t=>{
- const f=await fixture(t),u=await f.link();await f.configure();await f.configureAI();await f.gateway.onMessage(f.cid,u.whatsappJid,'MENU');const id=(await f.req('/whatsapp/inbox',undefined,f.admin.token)).body.threads[0].id;
+ const f=await fixture(t),u=await f.link();await f.configure();await f.configureAI();await f.gateway.onMessage(f.cid,u.whatsappJid,'RH');const id=(await f.req('/whatsapp/inbox',undefined,f.admin.token)).body.threads[0].id;
  await f.req('/whatsapp/inbox/'+id,{action:'claim'},f.admin.token,'PATCH');assert.equal(await f.gateway.onMessage(f.cid,u.whatsappJid,'Como envio meus documentos?'),null);assert.equal(f.aiCalls.length,0);
  await f.app.locals.whatsappHub.wellbeing.tick(new Date('2026-11-11T15:00Z'));assert.equal(f.sent.length,0);
- await f.req('/whatsapp/inbox/'+id,{action:'release'},f.admin.token,'PATCH');assert.match(await f.gateway.onMessage(f.cid,u.whatsappJid,'MENU'),/Meu ponto/);
+ await f.req('/whatsapp/inbox/'+id,{action:'release'},f.admin.token,'PATCH');assert.match(await f.gateway.onMessage(f.cid,u.whatsappJid,'MENU'),/Flora/);
 });
 test('deduplica recebimentos e não expõe atestados na caixa dos atendentes',async t=>{
  const f=await fixture(t),u=await f.link();await f.gateway.onMessage(f.cid,'5568991112222@s.whatsapp.net','A',null,{id:'same'});await f.gateway.onMessage(f.cid,'5568991112222@s.whatsapp.net','A',null,{id:'same'});assert.equal((await f.store.list('wa-message',f.cid)).filter(m=>m.direction==='in').length,1);
- await f.gateway.onMessage(f.cid,u.whatsappJid,'ATESTADO');await f.gateway.onMessage(f.cid,u.whatsappJid,u.employeeCode);const privateFile={mime:'application/pdf',buffer:Buffer.from('%PDF-1.4\nDocumento de demonstração'),name:'documento.pdf'};assert.match(await f.gateway.onMessage(f.cid,u.whatsappJid,'',privateFile),/Recebemos/);
- const list=await f.store.list('wa-message',f.cid);assert.equal(list.some(m=>m.file),false);assert.equal((await f.req('/documents',undefined,f.employee.token)).body.documents?.length??(await f.store.list('document',f.cid)).length,1);
+ await f.gateway.onMessage(f.cid,u.whatsappJid,'ATESTADO');await f.gateway.onMessage(f.cid,u.whatsappJid,u.employeeCode);const privateFile={mime:'application/pdf',buffer:Buffer.from('%PDF-1.4\nDocumento de demonstração'),name:'documento.pdf'};assert.match(await f.gateway.onMessage(f.cid,u.whatsappJid,'',privateFile),/Recebi/);
+ const list=await f.store.list('wa-message',f.cid);assert.equal(list.some(m=>m.file),false);assert.equal((await f.store.list('document',f.cid)).length,0);assert.equal((await f.req('/documents/submissions',undefined,f.employee.token)).body.length,1);
 });
 test('anexos de atendimento ficam no tenant e não aceitam HTML disfarçado',async t=>{
  const f=await fixture(t);const file={mime:'application/pdf',buffer:Buffer.from('%PDF-1.4\narquivo fictício'),name:'arquivo.pdf'};await f.gateway.onMessage(f.cid,'5568991112222@s.whatsapp.net','Veja o arquivo',file,{id:'file1'});
@@ -104,18 +104,15 @@ test('eventos próprios entram como atendimento humano e ecos dos envios do sist
  await g.sendText(f.cid,raw.key.remoteJid,'Código de verificação de teste');await g.receiveRaw(f.cid,session,session.sock,{...raw,key:{...raw.key,id:'system-echo'}},'notify');assert.equal((await f.store.list('wa-message',f.cid)).length,1);
 });
 
-test('visitante usa menu sem IA e documentos enviados em nome de outra pessoa ficam com a equipe',async t=>{
+test('visitante usa menu sem IA; atestado por outra pessoa aguarda conferência sem entrar na pasta',async t=>{
  const f=await fixture(t);await f.configureAI();const stranger='5568991112222@s.whatsapp.net',registered='5568999999999@s.whatsapp.net';
- assert.match(await f.gateway.onMessage(f.cid,stranger,'Quero informações'),/Falar com o RH/);assert.equal(f.aiCalls.length,0);
- assert.match(await f.gateway.onMessage(f.cid,stranger,'2'),/Uma pessoa da equipe/);assert.equal(await f.gateway.onMessage(f.cid,stranger,'ATESTADO'),null);
- assert.equal(await f.gateway.onMessage(f.cid,stranger,f.employee.user.employeeCode),null);assert.equal(await f.gateway.onMessage(f.cid,stranger,f.employee.user.name),null);
+ assert.match(await f.gateway.onMessage(f.cid,stranger,'Quero informações'),/Falar com o RH/);assert.equal(f.aiCalls.length,0);assert.match(await f.gateway.onMessage(f.cid,stranger,'2'),/Pode enviar/);await f.gateway.onMessage(f.cid,stranger,f.employee.user.employeeCode);
  const file={mime:'application/pdf',name:'exemplo.pdf',buffer:Buffer.from('%PDF-1.4\nArquivo de teste')};await f.gateway.onMessage(f.cid,stranger,'',file);
- assert.equal((await f.store.list('document',f.cid)).length,0);assert.ok((await f.store.list('wa-message',f.cid)).some(m=>m.file));
- assert.match(await f.gateway.onMessage(f.cid,registered,'ATESTADO'),/vinculado ao seu cadastro/);assert.match(await f.gateway.onMessage(f.cid,registered,'',file),/Recebemos/);
- assert.equal((await f.store.list('document',f.cid))[0].owner,f.employee.user.id);assert.equal((await f.store.get('user',f.employee.user.id,f.cid)).phoneVerified,undefined);assert.equal(f.aiCalls.length,0);
+ assert.equal((await f.store.list('document',f.cid)).length,0);let row=(await f.store.list('certificate',f.cid))[0];assert.equal(row.suggestedEmployeeId,f.employee.user.id);assert.equal(row.senderId,null);assert.equal(f.aiCalls.length,0);
+ assert.match(await f.gateway.onMessage(f.cid,registered,'ATESTADO'),/RH confere/);assert.match(await f.gateway.onMessage(f.cid,registered,'',file),/Recebi/);assert.equal((await f.store.list('document',f.cid)).length,0);assert.equal((await f.store.list('certificate',f.cid)).length,2);
 });
 test('telefone reconhecido dispensa nova identificação e autorização de atendimento pode ser revogada',async t=>{
- const f=await fixture(t),u=await f.link();assert.match(await f.gateway.onMessage(f.cid,u.whatsappJid,'2'),/vinculado ao seu cadastro/);
+ const f=await fixture(t),u=await f.link();assert.match(await f.gateway.onMessage(f.cid,u.whatsappJid,'ATESTADO'),/RH confere/);
  await f.grant();assert.equal((await f.req('/whatsapp/inbox',undefined,f.operator.token)).status,200);await f.req('/admin/whatsapp/agents/'+f.operator.user.id,{whatsappAgent:false},f.admin.token,'PATCH');assert.equal((await f.req('/whatsapp/inbox',undefined,f.operator.token)).status,403);
 });
 

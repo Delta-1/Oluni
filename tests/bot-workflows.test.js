@@ -19,19 +19,17 @@ async function fixture(t,{employees=true}={}){
  const consent=async u=>{const p=await store.get('user',u.id,cid);p.aiConsent=true;await store.put('user',cid,p,p.id);};
  return {store,app,req,admin,token,cid,alice,bob,company,employee,ai,consent,message,calls,sent,phones,gateway};
 }
-test('assistente mantém diálogo depois do 4; oi e números não reiniciam menu; MENU restaura serviços sem IA',async t=>{
- const f=await fixture(t),u=f.alice.user,jid=u.phone+'@s.whatsapp.net';await f.ai();
- assert.match(await f.message(jid,'oi'),/4 — Conversar/);assert.equal(f.calls.length,0);
- assert.match(await f.message(jid,'4'),/ACEITO IA/);assert.match(await f.message(jid,'ACEITO IA'),/Autorização/);
+test('Flora conversa diretamente sem menu; números são respostas normais e serviços continuam determinísticos',async t=>{
+ const f=await fixture(t),u=f.alice.user,jid=u.phone+'@s.whatsapp.net';await f.ai();assert.match(await f.message(jid,'oi'),/ACEITO IA/);assert.equal(f.calls.length,0);await f.message(jid,'ACEITO IA');
  for(const text of ['Oi','Tudo bem?','1','Queria entender como funciona meu trabalho']){const result=await f.message(jid,text);assert.match(result,/Podemos conversar/);assert.doesNotMatch(result,/1 — Meu ponto/);}
  assert.equal(f.calls.length,4);assert.equal(f.calls[0].context.employeeName,u.name);assert.equal(f.calls[0].context.companyId,undefined);assert.equal(f.calls[0].context.menu,undefined);
- assert.match(await f.message(jid,'MENU'),/1 — Meu ponto/);assert.equal((await f.store.list('wa-ai-conversation',f.cid)).length,0);assert.match(await f.message(jid,'1'),/Seu ponto de/);assert.match(await f.message(jid,'2'),/PDF/);assert.equal(f.calls.length,4);
+ assert.doesNotMatch(await f.message(jid,'MENU'),/1 —/);assert.equal((await f.store.list('wa-ai-conversation',f.cid)).length,1);assert.match(await f.message(jid,'PONTO'),/Seu ponto de/);assert.match(await f.message(jid,'ATESTADO'),/PDF/);assert.equal(f.calls.length,4);assert.equal((await f.store.list('wa-message',f.cid)).length,0);
 });
 test('solicitar humano pausa IA e coleta automática até MENU ou liberação da equipe',async t=>{
- const f=await fixture(t),jid=f.alice.user.phone+'@s.whatsapp.net';await f.ai();await f.consent(f.alice.user);await f.message(jid,'4');
+ const f=await fixture(t),jid=f.alice.user.phone+'@s.whatsapp.net';await f.ai();await f.consent(f.alice.user);
  assert.match(await f.message(jid,'Quero falar com o RH'),/Uma pessoa/);assert.equal(await f.message(jid,'oi'),null);assert.equal(await f.message(jid,'ATESTADO'),null);assert.equal(await f.message(jid,'',pdf),null);assert.equal(f.calls.length,0);assert.equal((await f.store.list('document',f.cid)).length,0);
  const thread=(await f.req('/whatsapp/inbox',undefined,f.token)).body.threads[0];assert.equal((await f.req('/whatsapp/inbox/'+thread.id,{action:'claim'},f.token,'PATCH')).status,200);
- assert.equal(await f.message(jid,'MENU'),null);assert.equal((await f.req('/whatsapp/inbox/'+thread.id,{action:'release'},f.token,'PATCH')).status,200);assert.match(await f.message(jid,'MENU'),/Meu ponto/);
+ assert.equal(await f.message(jid,'MENU'),null);assert.equal((await f.req('/whatsapp/inbox/'+thread.id,{action:'release'},f.token,'PATCH')).status,200);assert.match(await f.message(jid,'MENU'),/Flora/);
  const messages=(await f.req('/whatsapp/inbox/'+thread.id+'/messages',undefined,f.token)).body.messages;assert.ok(messages.some(m=>m.text==='Quero falar com o RH'));assert.ok(messages.some(m=>m.file));
 });
 test('menus executam ações validadas; visitante só acessa assistente externo escolhido e autorizado',async t=>{
@@ -82,7 +80,7 @@ test('permissões de setor controlam números, pastas, convites, download e arqu
  assert.equal((await f.req('/admin/people/access',{documentDepartmentIds:['rh'],inviteDepartmentIds:['rh']},f.token)).status,200);const directory=(await f.req('/people/directory',undefined,f.alice.token)).body;assert.equal(directory.find(u=>u.id===b.id).phone,undefined);assert.equal(directory.find(u=>u.id===b.id).email,undefined);
  const file=(await f.req('/people/'+b.id+'/files',{name:'registro.txt',mime:'text/plain',data:Buffer.from('Documento privado sintético').toString('base64'),folderId:'cadastro'},f.alice.token)).body;assert.equal((await f.req('/people/'+b.id+'/files/'+file.id,undefined,f.bob.token)).status,200);assert.equal((await f.req('/people/'+a.id+'/files/'+file.id,undefined,f.alice.token)).status,404);
  const exported=await f.req('/people/'+b.id+'/files/export',{folderId:'cadastro'},f.alice.token);assert.equal(exported.status,200);assert.equal(Object.keys(unzipSync(Buffer.from(exported.body.data,'base64'))).length,1);
- const outsider='5568999999990@s.whatsapp.net';await f.message(outsider,'oi',pdf,{},rh.id);const thread=(await f.req('/whatsapp/inbox?channelId='+rh.id,undefined,f.alice.token)).body.threads[0],message=(await f.req('/whatsapp/inbox/'+thread.id+'/messages',undefined,f.alice.token)).body.messages.find(v=>v.file);assert.equal((await f.req('/whatsapp/files/'+message.file.id+'/archive',{employeeId:b.id,folderId:'atestados'},f.alice.token)).status,200);assert.equal((await f.store.list('document',f.cid))[0].owner,b.id);
+ const outsider='5568999999990@s.whatsapp.net';await f.message(outsider,'oi',pdf,{},rh.id);const thread=(await f.req('/whatsapp/inbox?channelId='+rh.id,undefined,f.alice.token)).body.threads[0],message=(await f.req('/whatsapp/inbox/'+thread.id+'/messages',undefined,f.alice.token)).body.messages.find(v=>v.file);assert.equal((await f.req('/whatsapp/files/'+message.file.id+'/archive',{employeeId:b.id,folderId:'atestados'},f.alice.token)).status,200);assert.equal((await f.store.list('document',f.cid)).length,0);assert.equal((await f.store.list('certificate',f.cid))[0].suggestedEmployeeId,b.id);
  const cfg=(await f.req('/admin/whatsapp/menus?channelId='+rh.id,undefined,f.token)).body;assert.ok(cfg.targets.some(c=>c.id===dp.id&&c.phone==='5568999999971'));assert.match(await f.message('5568999999980@s.whatsapp.net','MENU',null,{},rh.id),/Falar com DP/);
  await f.req('/admin/people/access',{documentDepartmentIds:[],inviteDepartmentIds:[]},f.token);assert.equal((await f.req('/people/'+b.id+'/files',undefined,f.alice.token)).status,404);assert.equal((await f.req('/people/'+b.id+'/files/export',{},f.alice.token)).status,404);
  await f.req('/admin/whatsapp/channels/'+rh.id,{teamIds:[],accessDepartmentIds:[]},f.token,'PATCH');assert.equal((await f.req('/whatsapp/inbox/'+thread.id+'/messages',undefined,f.alice.token)).status,403);

@@ -2,7 +2,7 @@ import {fail,lookup,text,phone} from './security.js';
 export function installServiceMenus({route,store,secret,admin,channels,assistants,gateway}){
  const id=key=>lookup(secret,'wa-service-menus',key),guestId=(cid,key,jid)=>lookup(secret,'wa-service-guest',cid,key,jid);
  const employeeDefaults=key=>[{label:'Meu ponto',action:'point'},{label:'Enviar atestado',action:'document'},{label:'Falar com a equipe',action:'human'},{label:'Conversar com a assistente',action:'assistant',assistantId:assistants.primaryId(key)}];
- const visitorDefaults=[{label:'Falar com o RH',action:'human'},{label:'Enviar atestado por um colaborador',action:'human'},{label:'Outros atendimentos',action:'human'}];
+ const visitorDefaults=[{label:'Falar com o RH',action:'human'},{label:'Enviar atestado por um colaborador',action:'document'},{label:'Outros atendimentos',action:'human'}];
  const config=async(cid,key)=>{
   const stored=await store.get('wa-service-menus',id(key),cid),legacy=await store.get('wa-visitor-settings',lookup(secret,'wa-visitor-settings',key),cid),company=await store.get('company',cid,cid);
   return stored||{employee:{enabled:true,greeting:company.greeting||'Olá! Você está no atendimento da {empresa}.',items:employeeDefaults(key)},visitor:{enabled:legacy?.enabled!==false,greeting:legacy?.greeting||'Olá! Você está no atendimento da {empresa}.',items:visitorDefaults,autoChannels:true}};

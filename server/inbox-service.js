@@ -5,7 +5,7 @@ import {serial} from './attendance.js';
 import {installWhatsAppIntake} from './whatsapp-intake.js';
 import {installWellbeing} from './whatsapp-wellbeing.js';
 import {canAttend,checkedAttachment} from './whatsapp-inbox.js';
-export function installWhatsAppInbox({route,store,secret,admin,gateway,configFor,channels,wellbeingAI,enrollment,menus,employeeFiles,peoplePermissions,saveDocument}){
+export function installWhatsAppInbox({route,store,secret,admin,gateway,configFor,channels,wellbeingAI,enrollment,menus,certificates,employeeFiles,peoplePermissions,saveDocument}){
  const updates=inboxUpdates(store);
  const staff=async(req,res,next)=>(await channels.authorized(req.user)).length?next():res.status(403).json({error:'Acesso restrito à equipe autorizada deste WhatsApp.'});
  const tid=(cid,jid,key=cid)=>lookup(secret,'wa-thread',cid,...(key===cid?[]:[key]),jid);
@@ -14,7 +14,7 @@ export function installWhatsAppInbox({route,store,secret,admin,gateway,configFor
  const access=async(u,key)=>{const c=await channels.owned(u.companyId,key||u.companyId);if(!channels.canAccess(u,c))throw fail(403,'Você não faz parte da equipe deste WhatsApp.');return c;};
  const agents=async(cid,key)=>{const list=key?[await channels.owned(cid,key)]:await channels.all(cid);return (await store.list('user',cid)).filter(u=>u.active&&list.some(c=>channels.canAccess(u,c))).map(u=>({id:u.id,name:u.name,role:u.role}));};
  const findUser=(cid,jid,key=cid)=>channels.member(cid,jid,key);
- const intake=installWhatsAppIntake({route,store,secret,admin,saveDocument,channels});
+ const intake=installWhatsAppIntake({route,store,secret,admin,certificates,channels});
  const wellbeing=installWellbeing({route,store,secret,admin,gateway,configFor,channels,ai:wellbeingAI,threadFor:async(cid,jid,key=cid)=>{const t=await threadFor(cid,jid,key);return await menus.isWaiting(cid,key,jid)?{...t,botPaused:true,status:t?.status||'waiting'}:t;}});
  const threadSafe=t=>({id:t.id,name:t.name,phone:t.phone,channelId:t.channelId||t.companyId,isGroup:!!t.isGroup,status:t.status,assignedTo:t.assignedTo||null,botPaused:!!t.botPaused,updatedAt:t.updatedAt,lastMessage:t.lastMessage||'',unread:t.unread||0,tags:t.tags||[],pinned:!!t.pinned});
  const owned=async(id,u)=>{const t=await store.get('wa-thread',id,u.companyId);if(!t)throw fail(404,'Conversa não encontrada.');await access(u,t.channelId||u.companyId);return t;};
@@ -118,7 +118,7 @@ export function installWhatsAppInbox({route,store,secret,admin,gateway,configFor
  });
  route('get','/whatsapp/files/:id',staff,async(req,res)=>{const cid=req.user.companyId,f=await store.get('wa-file',req.params.id,cid);if(!f)throw fail(404,'Arquivo não encontrado.');await owned(f.owner,req.user);res.json({mime:f.mime,name:f.name,data:(await readFile(f,cid)).toString('base64')});});
  route('post','/whatsapp/files/:id/archive',staff,async(req,res)=>{
-  const cid=req.user.companyId;if(!(await peoplePermissions.caps(req.user)).manageFiles)throw fail(403,'Seu setor não tem acesso às pastas dos colaboradores.');const f=await store.get('wa-file',req.params.id,cid);if(!f)throw fail(404,'Arquivo não encontrado.');await owned(f.owner,req.user);const u=await employeeFiles.person(req.user,req.body.employeeId),buffer=await readFile(f,cid);if(!(await peoplePermissions.caps(req.user)).manageFiles)throw fail(403,'Seu acesso às pastas foi alterado.');const file={name:f.name,mime:f.mime,buffer};res.json(req.body.folderId==='atestados'?await saveDocument(u,file):await employeeFiles.save(u,file,{source:'whatsapp-human',folderId:req.body.folderId||'cadastro',category:''}));
+  const cid=req.user.companyId;if(!(await peoplePermissions.caps(req.user)).manageFiles)throw fail(403,'Seu setor não tem acesso às pastas dos colaboradores.');const f=await store.get('wa-file',req.params.id,cid);if(!f)throw fail(404,'Arquivo não encontrado.');await owned(f.owner,req.user);const u=await employeeFiles.person(req.user,req.body.employeeId),buffer=await readFile(f,cid);if(!(await peoplePermissions.caps(req.user)).manageFiles)throw fail(403,'Seu acesso às pastas foi alterado.');const file={name:f.name,mime:f.mime,buffer};if(req.body.folderId==='atestados'){const thread=await store.get('wa-thread',f.owner,cid);return res.json({...await certificates.stage(cid,file,{source:'whatsapp',channelId:thread.channelId||cid,jid:thread.jid,phone:thread.phone||'',claim:u.name,providerId:'manual:'+f.id}),pendingReview:true});}res.json(await employeeFiles.save(u,file,{source:'whatsapp-human',folderId:req.body.folderId||'cadastro',category:''}));
  });
  route('get','/admin/whatsapp/agents',admin,async(req,res)=>res.json((await store.list('user',req.user.companyId)).filter(u=>u.active).map(u=>({id:u.id,name:u.name,departmentId:u.departmentId||null,department:u.department,role:u.role,whatsappAgent:!!u.whatsappAgent,employeeCode:u.employeeCode}))));
  route('patch','/admin/whatsapp/agents/:id',admin,async(req,res)=>{const cid=req.user.companyId,u=await store.get('user',req.params.id,cid);if(!u||!u.active||u.role==='admin')throw fail(404,'Colaborador ativo não encontrado.');u.whatsappAgent=req.body.whatsappAgent===true;u.whatsappChannelAccess=true;await store.put('user',cid,u,u.id);for(const c of await channels.all(cid)){if(!u.whatsappAgent){c.teamIds=(c.teamIds||[]).filter(id=>id!==u.id);c.blockedUserIds=[...new Set([...(c.blockedUserIds||[]),u.id])];}else if(c.id===cid){c.teamIds=[...new Set([...(c.teamIds||[]),u.id])];c.blockedUserIds=(c.blockedUserIds||[]).filter(id=>id!==u.id);}else continue;await store.put('wa-channel',cid,c,c.id);}res.json(publicUser(u));});
@@ -126,23 +126,26 @@ export function installWhatsAppInbox({route,store,secret,admin,gateway,configFor
   const c=await context(key);if(!c)return null;const cid=c.companyId,company=await store.get('company',cid,cid);if(!company)return null;
   if(meta.id){const receipt=lookup(secret,'wa-ingress-v2',cid,key,jid,meta.id);if(await store.get('wa-ingress',receipt,cid))return null;try{await store.put('wa-ingress',cid,{channelId:key,jid,at:new Date().toISOString()},receipt,true);}catch(e){if(e.status===409)return null;throw e;}}
   const incomingText=message,group=jid.endsWith('@g.us');let u=group?null:await findUser(cid,jid,key),command=message.trim().toUpperCase(),t=await threadFor(cid,jid,key),action=null;
-  if(!group&&u&&command==='MENU'&&!u.whatsappConsent){u.whatsappConsent=true;await store.put('user',cid,u,u.id);await menus.reset(cid,key,jid);}
+  if(!group&&u&&['MENU','VOLTAR','INICIO','INÍCIO'].includes(command)&&!u.whatsappConsent){u.whatsappConsent=true;await store.put('user',cid,u,u.id);await menus.reset(cid,key,jid);}
   if(!group&&['PARAR','SAIR','STOP'].includes(command)){if(u)await wellbeing.stop(cid,u.id,key);await menus.guestStop(cid,jid,key);return u?.active?legacy(cid,jid,message,attachment,{...meta,channelId:key}):'Respostas automáticas desativadas. Envie MENU para voltar aos serviços.';}
   if(!group&&['MENU','INICIO','INÍCIO'].includes(command))await menus.reset(cid,key,jid);
   const waiting=!group&&await menus.isWaiting(cid,key,jid),paused=t?.botPaused&&t.status!=='closed'||waiting;
+  if(!group&&paused)await intake.document(cid,jid,message,attachment,key,u,meta);
   if(!group&&!paused){
    const enrollmentResult=await enrollment.receive(cid,jid,message,attachment,key,u);if(enrollmentResult.handled)return enrollmentResult.reply;
-   if(u?.whatsappConsent)action=await menus.selection(cid,key,message,'employee',jid,u);
-   if(action?.action==='point')message='PONTO';if(action?.action==='document')message='ATESTADO';if(action?.action==='assistant')meta={...meta,startAssistant:true,assistantId:action.assistantId};
-   if(action?.action==='human'||action?.action==='channel'||action?.action==='phone')message='RH';
-   const doc=await intake.document(cid,jid,message,attachment,key,u);if(doc.handled){if(u)await wellbeing.stop(cid,u.id,key);return doc.reply;}if(doc.human)message='RH';
+   if(!u?.active)action=await menus.selection(cid,key,message,'visitor',jid);
+   if(action?.action==='point')message='PONTO';if(action?.action==='document'||!u?.active&&action?.action==='human'&&/atestado/i.test(action.label||''))message='ATESTADO';if(action?.action==='assistant')meta={...meta,startAssistant:true,assistantId:action.assistantId};
+   if((action?.action==='human'&&!/atestado/i.test(action.label||''))||action?.action==='channel'||action?.action==='phone')message='RH';
+   const doc=await intake.document(cid,jid,message,attachment,key,u,meta);if(doc.handled){if(u)await wellbeing.stop(cid,u.id,key);return doc.reply;}if(doc.human)message='RH';
    command=message.trim().toUpperCase();
    if(['PARAR BEM-ESTAR','PARAR BEM ESTAR'].includes(command))return (await wellbeing.receive(u,message,attachment,key)).reply;
    const result=await wellbeing.receive(u,message,attachment,key);if(result.handled)return result.reply;if(result.private)return legacy(cid,jid,message,attachment,{...meta,channelId:key});
    if(/^HUMOR\s+[1-5]$/.test(command))return legacy(cid,jid,message,attachment,{...meta,channelId:key});
    if(/^VINCULAR\s+/i.test(message))return legacy(cid,jid,message,attachment,{...meta,channelId:key});
-   if(attachment&&u?.active&&u.whatsappConsent&&['application/pdf','image/jpeg','image/png'].includes(attachment.mime))return 'Para colocar o arquivo na sua pasta, envie ATESTADO ou DOCUMENTOS antes do arquivo. Se ele for de outra pessoa, envie RH para atendimento humano.';
+   if(attachment&&u?.active&&u.whatsappConsent&&['application/pdf','image/jpeg','image/png'].includes(attachment.mime))return 'Você quer enviar um atestado para o RH? Escreva ATESTADO e envie o arquivo com o nome ou código do colaborador. Ele ficará pendente até a conferência da equipe.';
   }
+  const wantsHuman=/^(?:RH|FALAR COM O RH|ATENDIMENTO HUMANO)$/i.test(command)||/\b(?:FALAR|CONVERSAR)\b.*\b(?:RH|PESSOA|ATENDENTE|HUMANO)\b/i.test(command);
+  if(!group&&!paused&&u?.active&&u.whatsappConsent&&!wantsHuman)return legacy(cid,jid,message.slice(0,4000),attachment,{...meta,channelId:key});
   let current=await ensure(cid,jid,meta,key),duplicate=false;
   await serial('inbox:'+current.id,async()=>{
    current=await threadFor(cid,jid,key);const id=meta.id?lookup(secret,'wa-incoming',cid,...(key===cid?[]:[key]),jid,meta.id):undefined;if(id&&await store.get('wa-message',id,cid)){duplicate=true;return;}

@@ -7,8 +7,8 @@ export function installWhatsAppAI({route,store,secret,admin,settingsFor,companyF
  const configId=key=>lookup(secret,'wa-ai-settings',key),primaryId=key=>'primary:'+key;
  const configFor=async(cid,key=cid,assistantId=null)=>{
   const own=await store.get('wa-ai-settings',configId(key),cid)||key!==cid&&await store.get('wa-ai-settings',configId(cid),cid),legacy=await settingsFor(cid);
-  const base=own?{...own,usingLegacyKey:false}:{...legacy,provider:legacy?.provider||'gemini',model:legacy?.model||'gemini-2.5-flash',botName:'Assistente da equipe',instructions:'Ajude com dúvidas do trabalho, serviços e regras da empresa. Use os arquivos de orientação; quando faltar informação, encaminhe à equipe responsável.',mode:'automatic',usingLegacyKey:legacy?.source!=='platform'&&!!legacy?.apiKey};
-  const resolved=platform?platform.resolve(base):base;let value={...resolved,assistantId:primaryId(key),channelId:key,audience:'employee',primary:true};
+  const base=own?{...own,usingLegacyKey:false}:{...legacy,provider:legacy?.provider||'gemini',model:legacy?.model||'gemini-2.5-flash',botName:'Flora',instructions:'Ajude com dúvidas do trabalho, serviços e regras da empresa. Use os arquivos de orientação; quando faltar informação, encaminhe à equipe responsável.',mode:'automatic',usingLegacyKey:legacy?.source!=='platform'&&!!legacy?.apiKey};
+  base.mode='automatic';base.botName='Flora';const resolved=platform?platform.resolve(base):base;let value={...resolved,assistantId:primaryId(key),channelId:key,audience:'employee',primary:true};
   if(assistantId&&assistantId!==primaryId(key)){const a=await store.get('wa-assistant',assistantId,cid);if(!a||a.channelId!==key||a.active===false)throw fail(404,'Assistente não encontrado neste WhatsApp.');value={...value,assistantId:a.id,botName:a.name,instructions:a.instructions,audience:a.audience,enabled:a.enabled===true&&!!resolved.apiKey,primary:false};}
   return value;
  };
