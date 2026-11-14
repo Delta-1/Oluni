@@ -60,7 +60,7 @@ test('onboarding exige conexão ou decisão explícita de conectar depois e ofer
  assert.equal((await f.request('/onboarding',{step:'install'},f.admin.token)).status,409);assert.equal((await f.request('/onboarding',{step:'install',skipConnection:true},f.admin.token)).status,200);
  assert.equal((await f.request('/onboarding',{step:'done',skipConnection:true},f.admin.token)).status,200);assert.equal((await f.request('/bootstrap',undefined,f.admin.token)).body.onboardingRequired,false);
  assert.equal((await f.request('/onboarding',{step:'whatsapp'},f.employee.token)).status,400);assert.equal((await f.request('/onboarding',{step:'done'},f.employee.token)).status,200);
- const app=(await f.request('/public/app')).body;assert.match(app.qrImage,/^data:image\/png;base64,/);assert.match(app.installUrl,/instalar=1/);assert.equal(app.version,'3.5.0');
+ const app=(await f.request('/public/app')).body;assert.match(app.qrImage,/^data:image\/png;base64,/);assert.match(app.installUrl,/instalar=1/);assert.equal(app.version,'3.5.1');
 });
 test('pastas pessoais permitem documentos e movimentação, mantendo isolamento por funcionário e empresa',async t=>{
  const f=await fixture(t),id=f.employee.user.id,p='/people/'+id,token=f.employee.token;

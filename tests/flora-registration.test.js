@@ -44,3 +44,7 @@ test('falha ao registrar a confirmação da requisição não duplica resposta j
  const f=await fixture(t),put=f.store.put.bind(f.store);let failOnce=true;f.store.put=async(kind,...args)=>{if(kind==='chat-request'&&failOnce){failOnce=false;throw Error('Falha de armazenamento sintética');}return put(kind,...args);};
  const body={text:'Uma mensagem para retomar',requestId:'chat-resume-after-storage-fail'};assert.equal((await f.req('/chat',body,f.alice.token)).status,500);assert.equal((await f.req('/chat',body,f.alice.token)).status,200);assert.equal(f.calls.length,1);assert.equal((await f.req('/chat',undefined,f.alice.token)).body.length,2);
 });
+test('pendências de cadastro não repetem menu nem capturam um atestado como documento de admissão',async t=>{
+ const f=await fixture(t),u=f.alice.user,jid=u.phone+'@s.whatsapp.net';assert.equal((await f.req('/people/'+u.id+'/document-requests',{requiredDocuments:['rg','ctps'],channelId:f.cid},f.admin.token)).status,200);
+ assert.match(await f.message(jid,'Olá, meu dia está corrido'),/ouvir/);assert.match(await f.message(jid,'DOCUMENTOS'),/RG/);assert.match(await f.message(jid,'1'),/Envie RG/);assert.match(await f.message(jid,'Podemos conversar um pouco?'),/ouvir/);assert.match(await f.message(jid,'Preciso enviar um atestado'),/Pode enviar/);assert.match(await f.message(jid,u.name,pdf),/Pendentes/);assert.equal((await f.store.list('employee-file',f.cid)).length,0);assert.equal((await f.store.list('certificate',f.cid)).length,1);assert.equal((await f.store.list('document',f.cid)).length,0);
+});
